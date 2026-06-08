@@ -81,6 +81,7 @@ bool ConnWriter::WriteFrontObj() {
     }
     //情况1-3：真的发生错误
     cout << "EntireWrite write error " << endl;
+    return false;
 }
 
 void ConnWriter::OnWriteable() {

@@ -8,18 +8,21 @@ int testConn() {
     Sunnet::inst->RemoveConn(2);
     cout << Sunnet::inst->GetConn(1).get() << endl;
     cout << Sunnet::inst->GetConn(2).get() << endl;
+    return 0;
 }
 
 int testSocketCtrl() {
     int fd = Sunnet::inst->Listen(8001, 1);
     usleep(30*1000000);
     Sunnet::inst->CloseConn(fd);
+    return 0;
 }
 
 
 int TestEcho() {
     auto t = make_shared<string>("gateway");
     uint32_t gateway = Sunnet::inst->NewService(t);
+    return 0;
 }
 
 int main() {
