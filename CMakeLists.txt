@@ -9,7 +9,7 @@ aux_source_directory(./src DIR_SRCS)
 # 添加库文件路径
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/3rd/lua-5.3.5/src/)
 # 用C++11
-add_definitions(-std=c++11)
+add_definitions(-std=c++20)
 # 禁用PIE以兼容Lua静态库
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -no-pie")
 # 指定生成目标文件
