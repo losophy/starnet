@@ -4,7 +4,7 @@
 #include <assert.h>
 #include <string.h>
 
-#include <Sunnet.h>
+#include <Starnet.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 
@@ -32,7 +32,7 @@ void SocketWorker::OnAccept(shared_ptr<Conn> conn) {
     //    cout << "OnAccept setsockopt Fail " << strerror(errno) << endl;
     //}
     //步骤3：添加到管理结构
-    Sunnet::inst->AddConn(clientFd, conn->serviceId, Conn::TYPE::CLIENT);
+    Starnet::inst->AddConn(clientFd, conn->serviceId, Conn::TYPE::CLIENT);
     //步骤4：添加到epoll
     struct epoll_event ev;
 	ev.events = EPOLLIN | EPOLLET;
@@ -45,7 +45,7 @@ void SocketWorker::OnAccept(shared_ptr<Conn> conn) {
     msg->type = BaseMsg::TYPE::SOCKET_ACCEPT;
     msg->listenFd = conn->fd;
     msg->clientFd = clientFd;
-    Sunnet::inst->Send(conn->serviceId, msg);
+    Starnet::inst->Send(conn->serviceId, msg);
 }
 
 void SocketWorker::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
@@ -55,7 +55,7 @@ void SocketWorker::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
     msg->fd = conn->fd;
     msg->isRead = r;
     msg->isWrite = w;
-    Sunnet::inst->Send(conn->serviceId, msg);
+    Starnet::inst->Send(conn->serviceId, msg);
 }
 
 
@@ -63,7 +63,7 @@ void SocketWorker::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
 //处理事件
 void SocketWorker::OnEvent(epoll_event ev){
     int fd = ev.data.fd;
-    auto conn = Sunnet::inst->GetConn(fd);
+    auto conn = Starnet::inst->GetConn(fd);
     if(conn == NULL){
         cout << "OnEvent error, conn == NULL" << endl;
         return;

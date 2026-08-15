@@ -1,7 +1,7 @@
 
 #include "ConnWriter.h"
 #include <unistd.h>
-#include <Sunnet.h>
+#include <Starnet.h>
 #include <iostream>
 #include <string.h>
 #include <sys/socket.h>
@@ -23,7 +23,7 @@ void ConnWriter::EntireWriteWhenEmpty(shared_ptr<char> buff, streamsize len) {
         obj->buff = buff;
         obj->len = len;
         objs.push_back(obj);
-        Sunnet::inst->ModifyEvent(fd, true);
+        Starnet::inst->ModifyEvent(fd, true);
         return;
     }
     //情况1-3：真的发生错误
@@ -85,7 +85,7 @@ bool ConnWriter::WriteFrontObj() {
 }
 
 void ConnWriter::OnWriteable() {
-    auto conn = Sunnet::inst->GetConn(fd);
+    auto conn = Starnet::inst->GetConn(fd);
     if(conn == NULL){ //连接已关闭
         return;
     }
@@ -95,7 +95,7 @@ void ConnWriter::OnWriteable() {
     }
     
     if(objs.empty()) {
-        Sunnet::inst->ModifyEvent(fd, false);
+        Starnet::inst->ModifyEvent(fd, false);
 
         if(isClosing) {
             //通知服务，此处并不是通用做法
@@ -106,7 +106,7 @@ void ConnWriter::OnWriteable() {
             msg->type = BaseMsg::TYPE::SOCKET_RW;
             msg->fd = conn->fd;
             msg->isRead = true;
-            Sunnet::inst->Send(conn->serviceId, msg);
+            Starnet::inst->Send(conn->serviceId, msg);
         }
     }
 }
@@ -117,7 +117,7 @@ void ConnWriter::LingerClose(){
     }
     isClosing = true;
     if(objs.empty()) {
-        Sunnet::inst->CloseConn(fd);
+        Starnet::inst->CloseConn(fd);
         return;
     }
 }

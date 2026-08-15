@@ -8,13 +8,13 @@
 
 class Worker;
 
-class Sunnet {
+class Starnet {
 public:
     //单例
-    static Sunnet* inst;
+    static Starnet* inst;
 public:
     //构造函数
-    Sunnet();
+    Starnet();
     //初始化并开始
     void Start();
     //等待运行

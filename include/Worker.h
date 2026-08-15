@@ -1,8 +1,8 @@
 #pragma once
 #include <thread> 
-#include "Sunnet.h"
+#include "Starnet.h"
 #include "Service.h"
-class Sunnet;
+class Starnet;
 
 using namespace std;
 

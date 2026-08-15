@@ -4,7 +4,7 @@
 #include "Service.h"
 using namespace std;
 
-//那些调Sunnet的通过传参数解决
+//那些调Starnet的通过传参数解决
 //状态是不在队列中，global=true
 void Worker::CheckAndPutGlobal(shared_ptr<Service> srv) {
     //退出中（只能自己调退出，isExiting不会线程冲突）
@@ -17,7 +17,7 @@ void Worker::CheckAndPutGlobal(shared_ptr<Service> srv) {
         //重新放回全局队列
         if(!srv->msgQueue.empty()) {
             //此时srv->inGlobal一定是true
-            Sunnet::inst->PushGlobalQueue(srv);
+            Starnet::inst->PushGlobalQueue(srv);
         }
         //不在队列中，重设inGlobal
         else {
@@ -32,9 +32,9 @@ void Worker::CheckAndPutGlobal(shared_ptr<Service> srv) {
 //线程函数
 void Worker::operator()() {
     while(true) {
-        shared_ptr<Service> srv = Sunnet::inst->PopGlobalQueue();
+        shared_ptr<Service> srv = Starnet::inst->PopGlobalQueue();
         if(!srv){
-            Sunnet::inst->WorkerWait();
+            Starnet::inst->WorkerWait();
         }
         else{
             srv->ProcessMsgs(eachNum);

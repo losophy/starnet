@@ -1,7 +1,7 @@
 print("run lua init.lua")
 
 function OnInit(id)
-    sunnet.NewService("chat")
+    starnet.NewService("chat")
 end
 
 function OnExit()

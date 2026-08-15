@@ -5,7 +5,7 @@ local conns = {}
 function OnInit(id)
     serviceId = id
     print("[lua] chat OnInit id:"..id)
-    sunnet.Listen(8002, id)
+    starnet.Listen(8002, id)
 end
 
 
@@ -18,7 +18,7 @@ end
 function OnSocketData(fd, buff)
     print("[lua] chat OnSocketData "..fd)
     for fd, _ in pairs(conns) do
-        sunnet.Write(fd, buff)
+        starnet.Write(fd, buff)
     end
 end
 

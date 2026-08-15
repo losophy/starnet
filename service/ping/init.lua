@@ -19,7 +19,7 @@ function OnServiceMsg(source, buff)
     n2 = n2 + 2
     --编码
     buff = string.pack("i4 i4", n1, n2)
-    sunnet.Send(serviceId, source, buff)
+    starnet.Send(serviceId, source, buff)
 end
 
 function OnExit()

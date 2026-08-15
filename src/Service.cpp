@@ -1,5 +1,5 @@
 #include "Service.h"
-#include "Sunnet.h"
+#include "Starnet.h"
 #include <iostream>
 #include <unistd.h>
 #include <string.h>
@@ -70,7 +70,7 @@ void Service::OnInit() {
     //新建Lua虚拟机
     luaState = luaL_newstate();
     luaL_openlibs(luaState); 
-    //注册Sunnet系统API
+    //注册Starnet系统API
     LuaAPI::Register(luaState);
     //执行Lua文件
     string filename = "../service/" + *type + "/init.lua";
@@ -165,15 +165,15 @@ void Service::OnRWMsg(shared_ptr<SocketRWMsg> msg) {
         }while(len == BUFFSIZE);
 
         if(len <= 0 && errno != EAGAIN) {
-            if(Sunnet::inst->GetConn(fd)) {
+            if(Starnet::inst->GetConn(fd)) {
                 OnSocketClose(fd);
-                Sunnet::inst->CloseConn(fd);
+                Starnet::inst->CloseConn(fd);
             }
         }
     }
     //可写（注意没有else）
     if(msg->isWrite) {
-        if(Sunnet::inst->GetConn(fd)){
+        if(Starnet::inst->GetConn(fd)){
             OnSocketWritable(fd);
         }
     }

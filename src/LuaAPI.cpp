@@ -1,6 +1,6 @@
 #include "LuaAPI.h"
 #include "stdint.h"
-#include "Sunnet.h"
+#include "Starnet.h"
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
@@ -20,7 +20,7 @@ void LuaAPI::Register(lua_State *luaState) {
     };
 
     luaL_newlib (luaState, lualibs);
-    lua_setglobal(luaState, "sunnet");
+    lua_setglobal(luaState, "starnet");
 }
 
 
@@ -40,7 +40,7 @@ int LuaAPI::NewService(lua_State *luaState) {
     memcpy(newstr, type, len);
     auto t = make_shared<string>(newstr);
     //处理
-    uint32_t id = Sunnet::inst->NewService(t);
+    uint32_t id = Starnet::inst->NewService(t);
     //返回值
     lua_pushinteger(luaState, id);
     return 1;
@@ -54,7 +54,7 @@ int LuaAPI::KillService(lua_State *luaState) {
     }
     int id = lua_tointeger(luaState, 1);
     //处理
-    Sunnet::inst->KillService(id);
+    Starnet::inst->KillService(id);
     //返回值
     //（无）
     return 0;
@@ -95,7 +95,7 @@ int LuaAPI::Send(lua_State *luaState) {
     msg->source = source;
     msg->buff = shared_ptr<char>(newstr);
     msg->size = len;
-    Sunnet::inst->Send(toId, msg);
+    Starnet::inst->Send(toId, msg);
     //返回值
     //（无）
     return 0;
@@ -118,7 +118,7 @@ int LuaAPI::Listen(lua_State *luaState){
     }
     int id = lua_tointeger(luaState, 2);
     //处理
-    int fd = Sunnet::inst->Listen(port, id);
+    int fd = Starnet::inst->Listen(port, id);
     //返回值
     lua_pushinteger(luaState, fd);
     return 1;
@@ -134,7 +134,7 @@ int LuaAPI::CloseConn(lua_State *luaState){
     }
     int fd = lua_tointeger(luaState, 1);
     //处理
-    Sunnet::inst->CloseConn(fd);
+    Starnet::inst->CloseConn(fd);
     //返回值
     //（无）
     return 0;

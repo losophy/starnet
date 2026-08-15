@@ -1,4 +1,4 @@
-#include "Sunnet.h"
+#include "Starnet.h"
 #include <iostream>
 #include <assert.h>
 
@@ -12,13 +12,13 @@
 using namespace std;
 
 //单例
-Sunnet* Sunnet::inst;
-Sunnet::Sunnet(){
+Starnet* Starnet::inst;
+Starnet::Starnet(){
     inst = this;
 }
 
 //开启worker线程
-void Sunnet::StartWorker() {
+void Starnet::StartWorker() {
     for (int i = 0; i < WORKER_NUM; i++) {
         cout << "start worker thread:" << i << endl;
         //创建线程对象
@@ -34,7 +34,7 @@ void Sunnet::StartWorker() {
 }
 
 //开启Socket线程
-void Sunnet::StartSocket() {
+void Starnet::StartSocket() {
     //创建线程对象
     socketWorker = new SocketWorker();
     //初始化
@@ -44,8 +44,8 @@ void Sunnet::StartSocket() {
 }
 
 //开启系统
-void Sunnet::Start() {
-    cout << "Hello Sunnet" << endl;
+void Starnet::Start() {
+    cout << "Hello Starnet" << endl;
     //忽略SIGPIPE信号
     signal(SIGPIPE, SIG_IGN);
     //锁
@@ -61,14 +61,14 @@ void Sunnet::Start() {
 }
 
 //等待
-void Sunnet::Wait() {
+void Starnet::Wait() {
     if( workerThreads[0]) {
         workerThreads[0]->join();
     }
 }
 
 //新建服务
-uint32_t Sunnet::NewService(shared_ptr<string> type) {
+uint32_t Starnet::NewService(shared_ptr<string> type) {
     auto srv = make_shared<Service>();
     srv->type = type;
     pthread_rwlock_wrlock(&servicesLock);
@@ -83,7 +83,7 @@ uint32_t Sunnet::NewService(shared_ptr<string> type) {
 }
 
 //由id查找服务
-shared_ptr<Service> Sunnet::GetService(uint32_t id) {
+shared_ptr<Service> Starnet::GetService(uint32_t id) {
     shared_ptr<Service> srv = NULL;
     pthread_rwlock_rdlock(&servicesLock);
     {
@@ -98,7 +98,7 @@ shared_ptr<Service> Sunnet::GetService(uint32_t id) {
 
 //删除服务
 //只能service自己调自己，因为srv->OnExit、srv->isExiting不加锁
-void Sunnet::KillService(uint32_t id) {
+void Starnet::KillService(uint32_t id) {
     shared_ptr<Service> srv = GetService(id);
     if(!srv){
         return;
@@ -116,7 +116,7 @@ void Sunnet::KillService(uint32_t id) {
 
 
 //发送消息
-void Sunnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){
+void Starnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){
     shared_ptr<Service> toSrv = GetService(toId);
     if(!toSrv){
         cout << "Send fail, toSrv not exist toId:" << toId << endl;
@@ -142,7 +142,7 @@ void Sunnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){
 }
 
 //弹出全局队列
-shared_ptr<Service> Sunnet::PopGlobalQueue(){
+shared_ptr<Service> Starnet::PopGlobalQueue(){
     shared_ptr<Service> srv = NULL;
     pthread_spin_lock(&globalLock);
     {
@@ -157,7 +157,7 @@ shared_ptr<Service> Sunnet::PopGlobalQueue(){
 }
 
 //插入全局队列
-void Sunnet::PushGlobalQueue(shared_ptr<Service> srv){
+void Starnet::PushGlobalQueue(shared_ptr<Service> srv){
     pthread_spin_lock(&globalLock);
     {
         globalQueue.push(srv);
@@ -168,7 +168,7 @@ void Sunnet::PushGlobalQueue(shared_ptr<Service> srv){
 
 
 //仅测试用，buff须由new产生
-shared_ptr<BaseMsg> Sunnet::MakeMsg(uint32_t source, char* buff, int len) {
+shared_ptr<BaseMsg> Starnet::MakeMsg(uint32_t source, char* buff, int len) {
     auto msg= make_shared<ServiceMsg>();
     msg->type = BaseMsg::TYPE::SERVICE;
     msg->source = source;
@@ -181,7 +181,7 @@ shared_ptr<BaseMsg> Sunnet::MakeMsg(uint32_t source, char* buff, int len) {
 }
 
 //Worker线程调用，进入休眠
-void Sunnet::WorkerWait(){
+void Starnet::WorkerWait(){
     pthread_mutex_lock(&sleepMtx);
     sleepCount++;
     pthread_cond_wait(&sleepCond, &sleepMtx);
@@ -191,7 +191,7 @@ void Sunnet::WorkerWait(){
 
 
 //检查并唤醒线程
-void Sunnet::CheckAndWeakUp(){
+void Starnet::CheckAndWeakUp(){
     //unsafe
     if(sleepCount == 0) {
         return;
@@ -204,7 +204,7 @@ void Sunnet::CheckAndWeakUp(){
 
 
 //添加连接
-int Sunnet::AddConn(int fd, uint32_t id, Conn::TYPE type) {
+int Starnet::AddConn(int fd, uint32_t id, Conn::TYPE type) {
     auto conn = make_shared<Conn>();
     conn->fd = fd;
     conn->serviceId = id;
@@ -218,7 +218,7 @@ int Sunnet::AddConn(int fd, uint32_t id, Conn::TYPE type) {
 }
 
 //由id查找连接
-shared_ptr<Conn> Sunnet::GetConn(int fd) {
+shared_ptr<Conn> Starnet::GetConn(int fd) {
     shared_ptr<Conn> conn = NULL;
     pthread_rwlock_rdlock(&connsLock);
     {
@@ -232,7 +232,7 @@ shared_ptr<Conn> Sunnet::GetConn(int fd) {
 }
 
 //删除连接
-bool Sunnet::RemoveConn(int fd) {
+bool Starnet::RemoveConn(int fd) {
     int result;
     pthread_rwlock_wrlock(&connsLock);
     {
@@ -242,7 +242,7 @@ bool Sunnet::RemoveConn(int fd) {
     return result == 1;
 }
 
-int Sunnet::Listen(uint32_t port, uint32_t serviceId) {
+int Starnet::Listen(uint32_t port, uint32_t serviceId) {
     //创建Socket
     int listenFd = socket(AF_INET, SOCK_STREAM, 0);
     if(listenFd <= 0){
@@ -274,7 +274,7 @@ int Sunnet::Listen(uint32_t port, uint32_t serviceId) {
 }
 
 
-void Sunnet::CloseConn(uint32_t fd) {
+void Starnet::CloseConn(uint32_t fd) {
     //删除管理结构
     bool succ = RemoveConn(fd);
     //关闭
@@ -285,6 +285,6 @@ void Sunnet::CloseConn(uint32_t fd) {
     }
 }
 
-void Sunnet::ModifyEvent(int fd, bool epollOut) {
+void Starnet::ModifyEvent(int fd, bool epollOut) {
     socketWorker->ModifyEvent(fd, epollOut);
 }
