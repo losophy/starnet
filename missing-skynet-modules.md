@@ -13,7 +13,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_start.cpp/h`（`StarnetStart` 线程池+休眠唤醒）+ `starnet_worker.cpp` | `skynet_start.c` | 线程池管理、worker 线程 |
 | `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
-| `starnet_luaapi.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
+| `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
 | `service/main、chat、ping` | `examples/` + `service/` | 示例服务 |
 
 > 命名约定：所有模块统一使用 `starnet_` 前缀命名文件（对齐 skynet 目录结构，便于对照移植），如 `starnet_server.cpp`、`starnet_timer.cpp`。当前旧文件已全部重命名，`starnet.h` / `starnet.cpp` 对应主类 `Starnet`。

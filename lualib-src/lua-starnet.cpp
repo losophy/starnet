@@ -1,4 +1,4 @@
-#include "starnet_luaapi.h"
+#include "lua-starnet.h"
 #include "stdint.h"
 #include "starnet.h"
 #include <unistd.h>

@@ -3,7 +3,7 @@
 #include <iostream>
 #include <unistd.h>
 #include <string.h>
-#include "starnet_luaapi.h"
+#include "lua-starnet.h"
 
 //构造函数
 Service::Service() {
