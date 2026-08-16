@@ -15,10 +15,11 @@ starnet.dispatch("accept", function(clientfd, listenfd)
     conns[clientfd] = true
 end)
 
-starnet.dispatch("socket", function(fd, buff, len)
-    print("[lua] chat socket data "..fd.." len:"..len)
+starnet.dispatch("socket", function(fd, msg)
+    print("[lua] chat socket data "..fd.." len:"..#msg)
+    --广播：加 2 字节长度头封包（对齐 skynet netpack.pack）
     for cfd, _ in pairs(conns) do
-        starnet.Write(cfd, buff)
+        starnet.Write(cfd, starnet.pack(msg))
     end
 end)
 

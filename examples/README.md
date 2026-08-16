@@ -78,7 +78,14 @@ end)
 | `starnet.timeout(ti, func)` | ti centisecond 后执行 func | `skynet.timeout` |
 | `starnet.Listen(port, id)` / `starnet.Write(fd, buff)` / `starnet.CloseConn(fd)` | socket 操作（回退到 C 绑定） | `skynet.socket` |
 
-socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket`(fd, buff, len)、`close`(fd)。
+socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket`(fd, msg)、`close`(fd)。其中 `socket` 回调收到的是**完整数据包**——TCP 粘包/半包由 `netpack` 自动解析（2 字节大端长度头，对齐 skynet）；发送方需用 `starnet.pack(msg)` 加长度头：
+
+```lua
+starnet.dispatch("socket", function(fd, msg)
+    -- msg 是完整包（已去掉长度头）
+    starnet.Write(fd, starnet.pack(msg))  -- 转发时再加头
+end)
+```
 
 ## 示例说明
 
@@ -89,10 +96,10 @@ socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket
 - `starnet.timeout` 每秒心跳（回调续订）
 
 ### chat
-Socket 聊天室示例（协程化 socket 消息）：
+Socket 聊天室示例（协程化 socket 消息 + 封包）：
 - `starnet.start` 里 `starnet.Listen(8002, serviceId)` 监听 8002 端口
 - `dispatch("accept", ...)` 记录新连接
-- `dispatch("socket", ...)` 把收到的数据广播给所有连接（`starnet.Write` 走写缓冲）
+- `dispatch("socket", ...)` 收到**完整包**后广播给所有连接（`starnet.Write(cfd, starnet.pack(msg))` 加长度头）
 - `dispatch("close", ...)` 移除断开连接
 
 联调方式（另开终端）：

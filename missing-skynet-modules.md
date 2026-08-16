@@ -15,6 +15,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
 | `lualib/starnet.lua` | `lualib/skynet.lua` | Lua 宿主库：协程 dispatch / session RPC / sleep/fork/timeout（核心子集） |
+| `lualib-src/lua-netpack.cpp` | `lualib-src/lua-netpack.c` | 网络封包：2 字节大端长度头 + 粘包/半包解析（`netpack.filter/pop/pack`） |
 | `examples/main、chat、ping、db` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
 | `starnet_timer.cpp/h`（时间轮 + timer 线程，每 2.5ms 驱动） | `skynet_timer.c` | 定时器系统（极简版） |
 
@@ -51,8 +52,12 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - **功能**：
   - netpack filter 处理 TCP 粘包/半包，按 2 字节长度头解析完整数据包。
   - `socket_server.c` 每个连接有独立读缓冲，边读边解析。
-- **starnet 现状**：`starnet_socket_server.cpp::OnRW` 按 512 字节裸读后直接塞给 Lua；无长度头封包、无粘包半包累积，`chat` 服务收到的是碎片数据。
-- **影响**：无法实现网关、无法传输结构化二进制协议。
+- **starnet 现状**：✅ 已补 `lua-netpack.cpp`——移植 `lua-netpack.c` 核心逻辑：
+  - 发送 `starnet.pack(msg)` 加 2 字节大端长度头（最大 0xFFFF）。
+  - 接收 `netpack.filter(queue, fd, buff, size)` 按 fd 维护 `uncomplete` 半包链表，解析完整包（`"data"`）或多个包（`"more"` + `netpack.pop` 循环取）；连接关闭 `netpack.close` 清半包。
+  - `starnet.lua` 的 `dispatch_socket` 数据分支接入 filter，`dispatch("socket")` 收到的是**完整包**（无粘包半包）；`chat` 广播用 `starnet.Write(fd, starnet.pack(msg))`。
+  - 读取仍在 worker 线程（`Service::OnRWMsg` read 512 字节裸数据，对齐 skynet 每次 read 即投递、Lua 侧解析）。
+- **未补**：`socket_server.c` 的动态读缓冲大小（`MIN_READ_BUFFER` 增缩）、`netpack.tostring`（已字符串化）、读缓冲移到 socket 线程。
 
 ### 4. 协议类型分发体系
 

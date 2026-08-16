@@ -2,6 +2,7 @@
 --每条消息在独立协程中处理（starnet.dispatch）；session 匹配 RPC 请求/响应
 
 local c = _G.starnet  -- C 绑定表（lua-starnet.cpp 注册）
+local netpack = c.netpack  -- 网络封包（粘包/半包解析，对齐 skynet netpack）
 
 local coroutine = coroutine
 local table = table
@@ -60,6 +61,9 @@ local session_coroutine_id = {}       -- co -> session（当前协程上下文�
 local session_coroutine_address = {}  -- co -> source（当前协程上下文）
 
 local fork_queue = { h = 1, t = 0 }
+
+--网络封包解析队列（每服务一个，跨消息累积半包）
+local netpack_queue = netpack.create()
 
 --从协程池创建/复用协程（对齐 skynet.lua co_create）
 local function co_create(f)
@@ -174,14 +178,28 @@ function starnet.dispatch_socket(type, a, b, c)
         end
     elseif type == PTYPE_SOCKET_RW then
         if c == -1 then
+            --连接关闭：清除该fd半包
+            netpack.close(netpack_queue, a)
             local p = proto["close"]
             if p and p.dispatch then
                 dispatch_in_coroutine(p.dispatch, a)  -- func(fd)
             end
         else
+            --数据：netpack 解析粘包/半包，投递完整包（对齐 skynet netpack.filter + pop）
             local p = proto["socket"]
             if p and p.dispatch then
-                dispatch_in_coroutine(p.dispatch, a, b, c)  -- func(fd, buff, len)
+                local t, fd, msg = netpack.filter(netpack_queue, a, b, c)
+                while t == "data" or t == "more" do
+                    dispatch_in_coroutine(p.dispatch, fd, msg)  -- func(fd, msg)
+                    if t == "data" then
+                        break
+                    end
+                    --more：队列中还有完整包
+                    fd, msg = netpack.pop(netpack_queue)
+                    if not fd then
+                        break
+                    end
+                end
             end
         end
     end
@@ -218,6 +236,11 @@ function starnet.send(addr, typename, ...)
     local p = proto[typename]
     local msg = p.pack(...) or ""
     c.send_session(addr, p.id, 0, msg)
+end
+
+--网络封包：加 2 字节大端长度头（对齐 skynet netpack.pack）
+function starnet.pack(msg)
+    return netpack.pack(msg)
 end
 
 --RPC请求：分配 session 发送并挂起等待响应（对齐 skynet.call）

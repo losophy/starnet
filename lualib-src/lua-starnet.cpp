@@ -1,4 +1,5 @@
 #include "lua-starnet.h"
+#include "lua-netpack.h"
 #include "stdint.h"
 #include "starnet.h"
 #include "starnet_service.h"
@@ -35,6 +36,9 @@ void LuaAPI::Register(lua_State *luaState) {
     };
 
     luaL_newlib (luaState, lualibs);
+    //网络封包/粘包半包处理子表（对齐 skynet netpack）
+    LuaNetpack::Register(luaState);
+    lua_setfield(luaState, -2, "netpack");
     lua_setglobal(luaState, "starnet");
 }
 
