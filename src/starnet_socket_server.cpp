@@ -46,12 +46,13 @@ void SocketServer::OnAccept(shared_ptr<Conn> conn) {
 		cout << "OnAccept epoll_ctl Fail:" << strerror(errno) << endl;
 	}
     //步骤5：通知（事件出口，由桥接层投递）
-    auto msg = make_shared<SocketAcceptMsg>();
-    msg->type = BaseMsg::TYPE::SOCKET_ACCEPT;
+    auto msg = make_shared<SocketMsg>();
+    msg->type = BaseMsg::TYPE::SOCKET;
+    msg->subtype = SocketMsg::SUBTYPE::ACCEPT;
     msg->listenFd = conn->fd;
-    msg->clientFd = clientFd;
+    msg->fd = clientFd;
     if(listener) {
-        listener->OnAcceptMsg(msg, conn->serviceId);
+        listener->OnSocketMsg(msg, conn->serviceId);
     }
 }
 
@@ -64,12 +65,12 @@ void SocketServer::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
     }
     //可读：通知服务（读逻辑暂留业务层）
     if(r) {
-        auto msg = make_shared<SocketRWMsg>();
-        msg->type = BaseMsg::TYPE::SOCKET_RW;
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::DATA;
         msg->fd = conn->fd;
-        msg->isRead = true;
         if(listener) {
-            listener->OnRWMsg(msg, conn->serviceId);
+            listener->OnSocketMsg(msg, conn->serviceId);
         }
     }
 }
@@ -325,12 +326,12 @@ void SocketServer::OnWriteable(int fd) {
         //让read产生 Bad file descriptor报错
         cout << "linger close conn" << endl;
         shutdown(fd, SHUT_RD);
-        auto msg = make_shared<SocketRWMsg>();
-        msg->type = BaseMsg::TYPE::SOCKET_RW;
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::CLOSE;
         msg->fd = conn->fd;
-        msg->isRead = true;
         if(listener) {
-            listener->OnRWMsg(msg, conn->serviceId);
+            listener->OnSocketMsg(msg, conn->serviceId);
         }
     }
     else if(emptied) {

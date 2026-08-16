@@ -120,7 +120,7 @@ void Starnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){
 //仅测试用，buff须由new产生
 shared_ptr<BaseMsg> Starnet::MakeMsg(uint32_t source, char* buff, int len) {
     auto msg= make_shared<ServiceMsg>();
-    msg->type = BaseMsg::TYPE::SERVICE;
+    msg->type = BaseMsg::TYPE::LUA;
     msg->source = source;
     //基本类型的对象没有析构函数
     //所以回收基本类型组成的数组空间用delete 和 delete[]都可以

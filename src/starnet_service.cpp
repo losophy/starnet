@@ -130,7 +130,7 @@ void Service::OnInit() {
     }
 }
 
-//收到服务间消息（SERVICE请求 或 RESPONSE响应）
+//收到服务间消息（LUA请求 或 RESPONSE响应）
 void Service::OnServiceMsg(shared_ptr<ServiceMsg> msg) {
     //调 Lua 宿主调度入口（协程化分发，对齐 skynet.dispatch_message）
     lua_pushinteger(luaState, msg->type);
@@ -146,67 +146,70 @@ void Service::OnServiceMsg(shared_ptr<ServiceMsg> msg) {
     CallStarnetLua("dispatch_message", 5);
 }
 
-//新连接
-void Service::OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg) {
-    cout << "OnAcceptMsg " << msg->clientFd << endl;
-    //协程化分发 accept（对齐 skynet.dispatch("accept", ...)）
-    lua_pushinteger(luaState, BaseMsg::TYPE::SOCKET_ACCEPT);
-    lua_pushinteger(luaState, msg->clientFd);
-    lua_pushinteger(luaState, msg->listenFd);
-    lua_pushinteger(luaState, 0);
-    CallStarnetLua("dispatch_socket", 4);
-}
-
-//套接字可读
-void Service::OnRWMsg(shared_ptr<SocketRWMsg> msg) {
+//socket 消息（accept / data / close，对齐 skynet PTYPE_SOCKET + SKYNET_SOCKET_TYPE_*）
+void Service::OnSocketMsg(shared_ptr<SocketMsg> msg) {
+    //新连接
+    if(msg->subtype == SocketMsg::SUBTYPE::ACCEPT) {
+        cout << "OnAcceptMsg " << msg->fd << endl;
+        //协程化分发 accept（对齐 skynet.dispatch("accept", ...)）
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::ACCEPT);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushinteger(luaState, msg->listenFd);
+        lua_pushinteger(luaState, 0);
+        CallStarnetLua("dispatch_socket", 4);
+        return;
+    }
+    //连接关闭（写缓冲刷完后触发 / 读失败检测）
+    if(msg->subtype == SocketMsg::SUBTYPE::CLOSE) {
+        //协程化分发 close（对齐 skynet.dispatch("close", ...)）
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::CLOSE);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushnil(luaState);
+        lua_pushinteger(luaState, -1);
+        CallStarnetLua("dispatch_socket", 4);
+        return;
+    }
+    //套接字可读（DATA）
     int fd = msg->fd;
-    //可读
-    if(msg->isRead) {
-        const int BUFFSIZE = 512;
-        char buff[BUFFSIZE];
-        int len = 0;
-        do {
-            len = read(fd, buff, BUFFSIZE);
-            if(len > 0){
-                //协程化分发 socket 数据（对齐 skynet.dispatch("socket", ...)）
-                lua_pushinteger(luaState, BaseMsg::TYPE::SOCKET_RW);
-                lua_pushinteger(luaState, fd);
-                lua_pushlstring(luaState, buff, len);
-                lua_pushinteger(luaState, len);
-                CallStarnetLua("dispatch_socket", 4);
-            }
-        }while(len == BUFFSIZE);
+    const int BUFFSIZE = 512;
+    char buff[BUFFSIZE];
+    int len = 0;
+    do {
+        len = read(fd, buff, BUFFSIZE);
+        if(len > 0){
+            //协程化分发 socket 数据（对齐 skynet.dispatch("socket", ...)）
+            lua_pushinteger(luaState, SocketMsg::SUBTYPE::DATA);
+            lua_pushinteger(luaState, fd);
+            lua_pushlstring(luaState, buff, len);
+            lua_pushinteger(luaState, len);
+            CallStarnetLua("dispatch_socket", 4);
+        }
+    }while(len == BUFFSIZE);
 
-        if(len <= 0 && errno != EAGAIN) {
-            if(Starnet::inst->GetConn(fd)) {
-                //关闭通知（协程化分发 close）
-                lua_pushinteger(luaState, BaseMsg::TYPE::SOCKET_RW);
-                lua_pushinteger(luaState, fd);
-                lua_pushnil(luaState);
-                lua_pushinteger(luaState, -1);
-                CallStarnetLua("dispatch_socket", 4);
-                Starnet::inst->CloseConn(fd);
-            }
+    if(len <= 0 && errno != EAGAIN) {
+        if(Starnet::inst->GetConn(fd)) {
+            //关闭通知（协程化分发 close）
+            lua_pushinteger(luaState, SocketMsg::SUBTYPE::CLOSE);
+            lua_pushinteger(luaState, fd);
+            lua_pushnil(luaState);
+            lua_pushinteger(luaState, -1);
+            CallStarnetLua("dispatch_socket", 4);
+            Starnet::inst->CloseConn(fd);
         }
     }
 }
 
 //收到消息时触发
 void Service::OnMsg(shared_ptr<BaseMsg> msg) {
-    //SERVICE / RESPONSE
-    if(msg->type == BaseMsg::TYPE::SERVICE || msg->type == BaseMsg::TYPE::RESPONSE) {
+    //LUA / RESPONSE（服务间消息，含RPC）
+    if(msg->type == BaseMsg::TYPE::LUA || msg->type == BaseMsg::TYPE::RESPONSE) {
         auto m = dynamic_pointer_cast<ServiceMsg>(msg);
         OnServiceMsg(m);
     }
-    //SOCKET_ACCEPT
-    else if(msg->type == BaseMsg::TYPE::SOCKET_ACCEPT) {
-        auto m = dynamic_pointer_cast<SocketAcceptMsg>(msg);
-        OnAcceptMsg(m);
-    }
-    //SOCKET_RW
-    else if(msg->type == BaseMsg::TYPE::SOCKET_RW) {
-        auto m = dynamic_pointer_cast<SocketRWMsg>(msg);
-        OnRWMsg(m);
+    //SOCKET（accept / data / close）
+    else if(msg->type == BaseMsg::TYPE::SOCKET) {
+        auto m = dynamic_pointer_cast<SocketMsg>(msg);
+        OnSocketMsg(m);
     }
 }
 

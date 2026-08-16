@@ -29,8 +29,7 @@ struct ConnWriteBuffer {
 //事件出口（桥接层实现，对齐 skynet_socket.c）
 class SocketServerListener {
 public:
-    virtual void OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg, uint32_t serviceId) = 0;
-    virtual void OnRWMsg(shared_ptr<SocketRWMsg> msg, uint32_t serviceId) = 0;
+    virtual void OnSocketMsg(shared_ptr<SocketMsg> msg, uint32_t serviceId) = 0;
 };
 
 //网络IO引擎（对齐 skynet socket_server.c，不依赖 Starnet）

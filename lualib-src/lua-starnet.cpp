@@ -110,7 +110,7 @@ int LuaAPI::Send(lua_State *luaState) {
     memcpy(newstr, buff, len);
     //处理
     auto msg= make_shared<ServiceMsg>();
-    msg->type = BaseMsg::TYPE::SERVICE;
+    msg->type = BaseMsg::TYPE::LUA;
     msg->source = source;
     msg->buff = shared_ptr<char>(newstr);
     msg->size = len;

@@ -16,6 +16,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
 | `lualib/starnet.lua` | `lualib/skynet.lua` | Lua 宿主库：协程 dispatch / session RPC / sleep/fork/timeout（核心子集） |
 | `lualib-src/lua-netpack.cpp` | `lualib-src/lua-netpack.c` | 网络封包：2 字节大端长度头 + 粘包/半包解析（`netpack.filter/pop/pack`） |
+| `starnet_msg.h` 的 `BaseMsg::TYPE` + `SocketMsg` | `skynet.h` 的 `PTYPE_*` + `socket_server.h` 的 `SKYNET_SOCKET_TYPE_*` | 协议类型体系：PTYPE 编号对齐 + socket 子类型（`starnet.PTYPE_*` 常量） |
 | `examples/main、chat、ping、db` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
 | `starnet_timer.cpp/h`（时间轮 + timer 线程，每 2.5ms 驱动） | `skynet_timer.c` | 定时器系统（极简版） |
 
@@ -44,7 +45,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
   - `starnet.call / ret / response / send`：`genid` 自增 session（`Service::sessionGen`，C 侧 `starnet.genid()`），`send_session` 携带 `(type, session)`（source 取当前服务），`ServiceMsg` 增加 `session` 字段，`RESPONSE=4` 消息类型对齐 `PTYPE_RESPONSE`。
   - `starnet.sleep / fork / timeout`：定时器到期投 RESPONSE 恢复协程（`auxtimeout`）。
   - 服务写法改为 skynet 风格：`starnet.start` + `starnet.dispatch("lua"/"socket"/"accept"/"close", func)`；socket 消息也协程化（`dispatch_socket`）。
-- **未补**：`wakeup`（唤醒表）、协议类型体系（见第 4 节）、`skynet.queue/mqueue`、错误上报 `watching_session`。
+- **未补**：`wakeup`（唤醒表）、`skynet.queue/mqueue`、错误上报 `watching_session`（协议类型体系已随第 4 节补上）。
 
 ### 3. 网络封包 / 粘包半包处理
 
@@ -63,8 +64,12 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 - **skynet 对应**：`skynet.h` 的 `PTYPE_*`（TEXT/RESPONSE/SOCKET/LUA/ERROR…）+ `skynet.register_protocol` + `skynet.dispatch`
 - **功能**：消息按类型路由到不同回调；响应自动匹配请求 session。
-- **starnet 现状**：`BaseMsg::TYPE` 仅 SERVICE / SOCKET_ACCEPT / SOCKET_RW 三种，无类型化协议体系。
-- **影响**：服务无法按协议类型注册处理函数。
+- **starnet 现状**：✅ 已补——`BaseMsg::TYPE` 对齐 `skynet.h` 的 `PTYPE_*` 编号（TEXT=0/RESPONSE=1/…/SOCKET=6/ERROR=7/LUA=10…）：
+  - `SocketAcceptMsg`+`SocketRWMsg` 合并为 `SocketMsg`（`type=SOCKET` + `SUBTYPE{DATA=1,CLOSE=3,ACCEPT=4}`，对齐 `SKYNET_SOCKET_TYPE_*`），socket 投递统一走 `OnSocketMsg`。
+  - `starnet.lua` 暴露 `starnet.PTYPE_*` 常量表（对齐 skynet.lua）；内置协议 `"lua"` id=`PTYPE_LUA(10)`、`"socket"` id=`PTYPE_SOCKET(6)`。
+  - `starnet.register_protocol` 加冲突/范围校验；`dispatch_message` 对未注册协议类型打印告警（含 source/session）。
+  - `dispatch_socket` 首参改传 socket 子类型（ACCEPT/DATA/CLOSE），`dispatch("accept"/"socket"/"close")` 名字接口不变。
+- **未补**：`PTYPE_TAG_DONTCOPY / ALLOCSESSION`（无 tag 消息需求）、`PTYPE_ERROR` 错误回包链路（协程出错向请求方回 ERROR，属 `watching_session` 范畴）。
 
 ### 5. 服务句柄 / 名字服务
 

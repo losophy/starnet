@@ -23,13 +23,40 @@ end
 local coroutine_yield = coroutine.yield
 local coroutine_create = coroutine.create
 
---消息类型（对齐 BaseMsg::TYPE / skynet PTYPE_*）
-local PTYPE_SERVICE = 1
-local PTYPE_SOCKET_ACCEPT = 2
-local PTYPE_SOCKET_RW = 3
-local PTYPE_RESPONSE = 4
+--消息类型（对齐 skynet.h 的 PTYPE_*，见 starnet.PTYPE_*）
+local PTYPE_TEXT = 0
+local PTYPE_RESPONSE = 1
+local PTYPE_MULTICAST = 2
+local PTYPE_CLIENT = 3
+local PTYPE_SYSTEM = 4
+local PTYPE_HARBOR = 5
+local PTYPE_SOCKET = 6
+local PTYPE_ERROR = 7
+local PTYPE_QUEUE = 8
+local PTYPE_DEBUG = 9
+local PTYPE_LUA = 10
+local PTYPE_SNAX = 11
+
+--socket 子类型（对齐 socket_server.h 的 SKYNET_SOCKET_TYPE_*）
+local SKYNET_SOCKET_TYPE_DATA = 1
+local SKYNET_SOCKET_TYPE_CLOSE = 3
+local SKYNET_SOCKET_TYPE_ACCEPT = 4
 
 local starnet = {}
+
+--暴露协议类型常量（对齐 skynet.lua 的 starnet.PTYPE_*）
+starnet.PTYPE_TEXT = PTYPE_TEXT
+starnet.PTYPE_RESPONSE = PTYPE_RESPONSE
+starnet.PTYPE_MULTICAST = PTYPE_MULTICAST
+starnet.PTYPE_CLIENT = PTYPE_CLIENT
+starnet.PTYPE_SYSTEM = PTYPE_SYSTEM
+starnet.PTYPE_HARBOR = PTYPE_HARBOR
+starnet.PTYPE_SOCKET = PTYPE_SOCKET
+starnet.PTYPE_ERROR = PTYPE_ERROR
+starnet.PTYPE_QUEUE = PTYPE_QUEUE
+starnet.PTYPE_DEBUG = PTYPE_DEBUG
+starnet.PTYPE_LUA = PTYPE_LUA
+starnet.PTYPE_SNAX = PTYPE_SNAX
 
 --协议表（对齐 skynet register_protocol + proto：name 与 id 双索引）
 local proto = {}
@@ -40,16 +67,24 @@ local function unpack_string(...) return ... end
 function starnet.register_protocol(class)
     local name = class.name
     local id = class.id
-    proto[name] = class
+    assert(type(name) == "string", "register_protocol name must be string")
+    if proto[name] ~= nil then
+        error("register_protocol conflict name: " .. tostring(name))
+    end
     if id then
+        assert(type(id) == "number" and id >= 0 and id <= 255, "register_protocol invalid id: " .. tostring(id))
+        if proto[id] ~= nil then
+            error("register_protocol conflict id: " .. tostring(id))
+        end
         proto[id] = class
     end
+    proto[name] = class
 end
 
---内置协议
-starnet.register_protocol({ name = "lua", id = PTYPE_SERVICE, pack = pack_string, unpack = unpack_string })
+--内置协议（lua/socket 对齐 skynet 的 PTYPE_LUA / PTYPE_SOCKET）
+starnet.register_protocol({ name = "lua", id = PTYPE_LUA, pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "socket", id = PTYPE_SOCKET, pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "accept", pack = pack_string, unpack = unpack_string })
-starnet.register_protocol({ name = "socket", pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "close", pack = pack_string, unpack = unpack_string })
 
 --协程池
@@ -123,9 +158,15 @@ local function raw_dispatch_message(type, session, source, buff, sz)
         end
         return
     end
-    --普通消息：新协程执行对应 dispatch 回调
+    --未知协议类型（对齐 skynet：未注册类型无回调，告警后丢弃）
     local p = proto[type]
-    if p and p.dispatch then
+    if p == nil then
+        print("unknown protocol type " .. tostring(type) ..
+            " from " .. tostring(source) .. " session " .. tostring(session))
+        return
+    end
+    --普通消息：新协程执行对应 dispatch 回调
+    if p.dispatch then
         local f = p.dispatch
         local co = co_create(f)
         session_coroutine_id[co] = session
@@ -170,35 +211,33 @@ local function dispatch_in_coroutine(f, ...)
     suspend(co, coroutine_resume(co, ...))
 end
 
-function starnet.dispatch_socket(type, a, b, c)
-    if type == PTYPE_SOCKET_ACCEPT then
+function starnet.dispatch_socket(subtype, a, b, c)
+    if subtype == SKYNET_SOCKET_TYPE_ACCEPT then
         local p = proto["accept"]
         if p and p.dispatch then
             dispatch_in_coroutine(p.dispatch, a, b)  -- func(clientfd, listenfd)
         end
-    elseif type == PTYPE_SOCKET_RW then
-        if c == -1 then
-            --连接关闭：清除该fd半包
-            netpack.close(netpack_queue, a)
-            local p = proto["close"]
-            if p and p.dispatch then
-                dispatch_in_coroutine(p.dispatch, a)  -- func(fd)
-            end
-        else
-            --数据：netpack 解析粘包/半包，投递完整包（对齐 skynet netpack.filter + pop）
-            local p = proto["socket"]
-            if p and p.dispatch then
-                local t, fd, msg = netpack.filter(netpack_queue, a, b, c)
-                while t == "data" or t == "more" do
-                    dispatch_in_coroutine(p.dispatch, fd, msg)  -- func(fd, msg)
-                    if t == "data" then
-                        break
-                    end
-                    --more：队列中还有完整包
-                    fd, msg = netpack.pop(netpack_queue)
-                    if not fd then
-                        break
-                    end
+    elseif subtype == SKYNET_SOCKET_TYPE_CLOSE then
+        --连接关闭：清除该fd半包
+        netpack.close(netpack_queue, a)
+        local p = proto["close"]
+        if p and p.dispatch then
+            dispatch_in_coroutine(p.dispatch, a)  -- func(fd)
+        end
+    elseif subtype == SKYNET_SOCKET_TYPE_DATA then
+        --数据：netpack 解析粘包/半包，投递完整包（对齐 skynet netpack.filter + pop）
+        local p = proto["socket"]
+        if p and p.dispatch then
+            local t, fd, msg = netpack.filter(netpack_queue, a, b, c)
+            while t == "data" or t == "more" do
+                dispatch_in_coroutine(p.dispatch, fd, msg)  -- func(fd, msg)
+                if t == "data" then
+                    break
+                end
+                --more：队列中还有完整包
+                fd, msg = netpack.pop(netpack_queue)
+                if not fd then
+                    break
                 end
             end
         end

@@ -47,8 +47,7 @@ private:
 private:
     //消息处理
     void OnServiceMsg(shared_ptr<ServiceMsg> msg);
-    void OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg);
-    void OnRWMsg(shared_ptr<SocketRWMsg> msg);
+    void OnSocketMsg(shared_ptr<SocketMsg> msg);
     //调用全局 starnet 表上的 Lua 函数（starnet.lua 宿主库，nargs 为已压栈参数数）
     void CallStarnetLua(const char* func, int nargs);
 };
