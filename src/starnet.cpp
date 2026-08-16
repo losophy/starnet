@@ -51,7 +51,7 @@ void Starnet::Start() {
     //锁
     pthread_rwlock_init(&servicesLock, NULL);
     assert(pthread_rwlock_init(&connsLock, NULL)==0);
-    pthread_spin_init(&globalLock, PTHREAD_PROCESS_PRIVATE);
+    starnet_globalmq_init();
     pthread_cond_init(&sleepCond, NULL);
     pthread_mutex_init(&sleepMtx, NULL);    
     //开启Worker
@@ -122,50 +122,14 @@ void Starnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){
         cout << "Send fail, toSrv not exist toId:" << toId << endl;
         return;
     }
-    toSrv->PushMsg(msg);
+    toSrv->mq.Push(msg);
     //检查并放入全局队列
     //为缩小临界区灵活控制，破坏封装性
-    bool hasPush = false;
-    pthread_spin_lock(&toSrv->inGlobalLock);
-    {
-        if(!toSrv->inGlobal) {
-            PushGlobalQueue(toSrv);
-            toSrv->inGlobal = true;
-            hasPush = true;
-        }
-    }
-    pthread_spin_unlock(&toSrv->inGlobalLock);
     //唤起进程，不放在临界区里面
-    if(hasPush) {
+    if(toSrv->mq.TryEnterGlobal(toSrv)) {
         CheckAndWeakUp();
     }
 }
-
-//弹出全局队列
-shared_ptr<Service> Starnet::PopGlobalQueue(){
-    shared_ptr<Service> srv = NULL;
-    pthread_spin_lock(&globalLock);
-    {
-        if (!globalQueue.empty()) {
-            srv = globalQueue.front();
-            globalQueue.pop();
-            globalLen--;
-        }
-    }
-    pthread_spin_unlock(&globalLock);
-    return srv;
-}
-
-//插入全局队列
-void Starnet::PushGlobalQueue(shared_ptr<Service> srv){
-    pthread_spin_lock(&globalLock);
-    {
-        globalQueue.push(srv);
-        globalLen++;
-    }
-    pthread_spin_unlock(&globalLock);
-}
-
 
 //仅测试用，buff须由new产生
 shared_ptr<BaseMsg> Starnet::MakeMsg(uint32_t source, char* buff, int len) {
@@ -196,7 +160,7 @@ void Starnet::CheckAndWeakUp(){
     if(sleepCount == 0) {
         return;
     }
-    if( WORKER_NUM - sleepCount <= globalLen ) {
+    if( WORKER_NUM - sleepCount <= starnet_globalmq_length() ) {
         cout << "weakup" << endl; 
         pthread_cond_signal(&sleepCond);
     }

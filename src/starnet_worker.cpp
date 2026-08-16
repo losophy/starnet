@@ -11,20 +11,8 @@ void Worker::CheckAndPutGlobal(shared_ptr<Service> srv) {
     if(srv->isExiting){ 
         return; 
     }
-
-    pthread_spin_lock(&srv->queueLock);
-    {
-        //重新放回全局队列
-        if(!srv->msgQueue.empty()) {
-            //此时srv->inGlobal一定是true
-            Starnet::inst->PushGlobalQueue(srv);
-        }
-        //不在队列中，重设inGlobal
-        else {
-            srv->SetInGlobal(false);
-        }
-    }
-    pthread_spin_unlock(&srv->queueLock);
+    //队列非空则重新入全局队列，否则置inGlobal=false
+    srv->mq.FinishDispatch(srv);
 }
 
 
@@ -32,7 +20,7 @@ void Worker::CheckAndPutGlobal(shared_ptr<Service> srv) {
 //线程函数
 void Worker::operator()() {
     while(true) {
-        shared_ptr<Service> srv = Starnet::inst->PopGlobalQueue();
+        shared_ptr<Service> srv = starnet_globalmq_pop();
         if(!srv){
             Starnet::inst->WorkerWait();
         }
