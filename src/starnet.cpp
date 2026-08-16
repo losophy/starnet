@@ -43,6 +43,11 @@ string Starnet::GetService() {
     return config.service;
 }
 
+//获取Lua模块搜索路径
+string Starnet::GetLuaPath() {
+    return config.luaPath;
+}
+
 //等待
 void Starnet::Wait() {
     start->Wait();

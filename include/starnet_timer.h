@@ -6,7 +6,7 @@
 //初始化定时器
 void starnet_timer_init();
 
-//注册定时器：time 为 centisecond(1/100秒)，到期后向 handle 服务投递 TimerMsg(session)
+//注册定时器：time 为 centisecond(1/100秒)，到期后向 handle 服务投递 RESPONSE 消息(session)
 //time<=0 时立即投递；返回 session
 int starnet_timeout(uint32_t handle, int time, int session);
 

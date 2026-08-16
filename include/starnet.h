@@ -20,6 +20,8 @@ public:
     void Wait();
     //获取服务搜索模板（对齐 skynet 的 LUA_SERVICE）
     string GetService();
+    //获取Lua模块搜索路径（对齐 skynet 的 lua_path）
+    string GetLuaPath();
     //增删服务
     uint32_t NewService(shared_ptr<string> type);
     void KillService(uint32_t id);     //仅限服务自己调用

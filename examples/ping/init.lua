@@ -1,27 +1,17 @@
-local serviceId
+--ping 服务：演示 RPC 请求-应答（数值累加，对齐原示例逻辑）
+local starnet = require "starnet"
 
-function OnInit(id)
-    print("[lua] ping OnInit id:"..id)
-    serviceId = id
-end
+starnet.start(function()
+    print("[lua] ping start id:"..starnet.self())
+end)
 
-
-function OnServiceMsg(source, buff)
-    local n1 = 0
-    local n2 = 0
-    --解码
-    if buff ~= "start" then
-        n1, n2 = string.unpack("i4 i4", buff)
+starnet.dispatch("lua", function(session, source, buff)
+    print("[lua] ping recv session:"..session.." from:"..source.." buff:"..buff)
+    if buff == "start" then
+        return
     end
-    --处理
-    print("[lua] ping OnServiceMsg n1:"..n1.." n2:"..n2)
+    local n1, n2 = string.unpack("i4 i4", buff)
     n1 = n1 + 1
     n2 = n2 + 2
-    --编码
-    buff = string.pack("i4 i4", n1, n2)
-    starnet.Send(serviceId, source, buff)
-end
-
-function OnExit()
-    print("[lua] ping OnExit")
-end
+    starnet.ret(string.pack("i4 i4", n1, n2))
+end)

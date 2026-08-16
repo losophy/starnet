@@ -6,20 +6,21 @@ using namespace std;
 class BaseMsg {
 public:
     enum TYPE {          //消息类型
-        SERVICE = 1, 
+        SERVICE = 1,     //服务间请求消息（可携带 session）
         SOCKET_ACCEPT = 2,
         SOCKET_RW = 3,
-        TIMER = 4,
+        RESPONSE = 4,    //RPC响应（对齐 skynet PTYPE_RESPONSE）
     }; 
     uint8_t type;           //消息类型
     char load[999999]{};    //用于检测内存泄漏
     virtual ~BaseMsg(){};
 };
 
-//服务间消息
+//服务间消息（含RPC：session>0 表示请求/响应匹配，对齐 skynet_message.session）
 class ServiceMsg : public BaseMsg  {
 public: 
     uint32_t source;        //消息发送方
+    int session;            //会话号（0 表示无需响应）
     shared_ptr<char> buff;  //消息内容
     size_t size;            //消息内容大小
 };
@@ -37,11 +38,4 @@ public:
     int fd;
     bool isRead = false;
     bool isWrite = false;
-};
-
-//定时器消息（对齐 skynet PTYPE_RESPONSE，source=0 表示系统定时器）
-class TimerMsg : public BaseMsg {
-public:
-    uint32_t source;    //消息发送方（0 表示系统）
-    int session;        //定时器会话号
 };

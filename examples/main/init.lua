@@ -1,20 +1,29 @@
-print("run lua init.lua")
+--main 服务：启动子服务，演示 RPC call / sleep / 定时器心跳
+local starnet = require "starnet"
 
-local serviceId
-
-function OnInit(id)
-    serviceId = id
+starnet.start(function()
+    print("[lua] main start id:"..starnet.self())
+    --启动子服务
     starnet.NewService("chat")
-    --每1秒（100 centisecond）心跳，演示定时器
-    starnet.timeout(serviceId, 100, 1)
-end
+    local ping = starnet.NewService("ping")
+    local db = starnet.NewService("db")
+    --演示 RPC call：ping（请求-应答，参数用 string.pack 编码，对齐原示例）
+    local n1, n2 = string.unpack("i4 i4", starnet.call(ping, "lua", string.pack("i4 i4", 1, 2)))
+    print("[lua] main call ping result n1:"..n1.." n2:"..n2)
+    --演示 RPC call：db
+    local r = starnet.call(db, "lua", "hello")
+    print("[lua] main call db result:"..r)
+    --演示 sleep（协程挂起 200 centisecond）
+    starnet.sleep(200)
+    print("[lua] main wake up after sleep")
+    --心跳：每 1 秒（回调式，对齐 skynet.timeout）
+    local function heartbeat()
+        print("[lua] main heartbeat")
+        starnet.timeout(100, heartbeat)
+    end
+    starnet.timeout(100, heartbeat)
+end)
 
-function OnTimeout(session)
-    print("[lua] main OnTimeout session:"..session)
-    --续订下一跳
-    starnet.timeout(serviceId, 100, session + 1)
-end
-
-function OnExit()
-    print("[lua] main OnExit")
-end
+starnet.dispatch("lua", function(session, source, buff)
+    print("[lua] main recv session:"..session.." from:"..source.." buff:"..buff)
+end)

@@ -1,28 +1,28 @@
+--chat 服务：广播聊天（对齐原示例，socket 消息改为协程化 dispatch）
+local starnet = require "starnet"
 
 local serviceId
 local conns = {}
 
-function OnInit(id)
-    serviceId = id
-    print("[lua] chat OnInit id:"..id)
-    starnet.Listen(8002, id)
-end
+starnet.start(function()
+    serviceId = starnet.self()
+    print("[lua] chat start id:"..serviceId)
+    starnet.Listen(8002, serviceId)
+end)
 
-
-function OnAcceptMsg(listenfd, clientfd)
-    print("[lua] chat OnAcceptMsg "..clientfd)
+starnet.dispatch("accept", function(clientfd, listenfd)
+    print("[lua] chat accept "..clientfd.." from "..listenfd)
     conns[clientfd] = true
-end
+end)
 
-
-function OnSocketData(fd, buff)
-    print("[lua] chat OnSocketData "..fd)
-    for fd, _ in pairs(conns) do
-        starnet.Write(fd, buff)
+starnet.dispatch("socket", function(fd, buff, len)
+    print("[lua] chat socket data "..fd.." len:"..len)
+    for cfd, _ in pairs(conns) do
+        starnet.Write(cfd, buff)
     end
-end
+end)
 
-function OnSocketClose(fd)
-    print("[lua] chat OnSocketClose "..fd)
+starnet.dispatch("close", function(fd)
+    print("[lua] chat close "..fd)
     conns[fd] = nil
-end
+end)

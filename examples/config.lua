@@ -7,4 +7,6 @@ return {
     start = "main",
     --worker线程数（对齐 skynet thread）
     thread = 3,
+    --Lua模块搜索路径（lualib 宿主库，对齐 skynet lua_path）
+    luaPath = "../lualib/?.lua",
 }

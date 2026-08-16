@@ -127,9 +127,9 @@ static inline void
 dispatch_list(struct timer_node* current) {
     do {
         struct timer_event* event = (struct timer_event*)(current+1);
-        //构造定时器消息投递给目标服务（对齐 skynet PTYPE_RESPONSE 投递）
-        auto msg = make_shared<TimerMsg>();
-        msg->type = BaseMsg::TYPE::TIMER;
+        //构造定时器消息投递给目标服务（对齐 skynet_timer 投递 PTYPE_RESPONSE）
+        auto msg = make_shared<ServiceMsg>();
+        msg->type = BaseMsg::TYPE::RESPONSE;
         msg->source = 0;
         msg->session = event->session;
         Starnet::inst->Send(event->handle, msg);
@@ -188,9 +188,9 @@ timer_create_timer() {
 int
 starnet_timeout(uint32_t handle, int time, int session) {
     if (time <= 0) {
-        //立即投递
-        auto msg = make_shared<TimerMsg>();
-        msg->type = BaseMsg::TYPE::TIMER;
+        //立即投递（对齐 skynet_timer 的 PTYPE_RESPONSE）
+        auto msg = make_shared<ServiceMsg>();
+        msg->type = BaseMsg::TYPE::RESPONSE;
         msg->source = 0;
         msg->session = session;
         Starnet::inst->Send(handle, msg);

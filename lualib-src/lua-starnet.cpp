@@ -1,10 +1,19 @@
 #include "lua-starnet.h"
 #include "stdint.h"
 #include "starnet.h"
+#include "starnet_service.h"
 #include "starnet_timer.h"
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
+
+//取当前Service上下文（OnInit 时存入注册表）
+static Service* GetCurrentService(lua_State *L) {
+    lua_getfield(L, LUA_REGISTRYINDEX, "starnet_service");
+    Service* srv = (Service*)lua_touserdata(L, -1);
+    lua_pop(L, 1);
+    return srv;
+}
 
 //注册Lua模块
 void LuaAPI::Register(lua_State *luaState) {
@@ -13,6 +22,9 @@ void LuaAPI::Register(lua_State *luaState) {
         { "NewService", NewService },
         { "KillService", KillService },
         { "Send", Send },
+        { "send_session", SendSession },
+        { "self", Self },
+        { "genid", Genid },
 
         { "Listen", Listen },
         { "CloseConn", CloseConn },
@@ -102,6 +114,64 @@ int LuaAPI::Send(lua_State *luaState) {
     //返回值
     //（无）
     return 0;
+}
+
+//带session发送（RPC，对齐 skynet c.send(addr, type, session, msg, sz)）
+//参数：toId, type, session, buff；source 取当前服务
+int LuaAPI::SendSession(lua_State *luaState) {
+    //参数1：发送给谁
+    if(lua_isinteger(luaState, 1) == 0) {
+        cout << "SendSession fail, arg1 err" << endl;
+        return 0;
+    }
+    int toId = lua_tointeger(luaState, 1);
+    //参数2：消息类型
+    if(lua_isinteger(luaState, 2) == 0) {
+        cout << "SendSession fail, arg2 err" << endl;
+        return 0;
+    }
+    int type = lua_tointeger(luaState, 2);
+    //参数3：session
+    if(lua_isinteger(luaState, 3) == 0) {
+        cout << "SendSession fail, arg3 err" << endl;
+        return 0;
+    }
+    int session = lua_tointeger(luaState, 3);
+    //参数4：发送的内容
+    if(lua_isstring(luaState, 4) == 0){
+        cout << "SendSession fail, arg4 err" << endl;
+        return 0;
+    }
+    size_t len = 0;
+    const char *buff = lua_tolstring(luaState, 4, &len);
+    char *newstr = new char[len];
+    memcpy(newstr, buff, len);
+    //处理
+    Service* srv = GetCurrentService(luaState);
+    auto msg = make_shared<ServiceMsg>();
+    msg->type = type;
+    msg->source = srv ? srv->id : 0;
+    msg->session = session;
+    msg->buff = shared_ptr<char>(newstr);
+    msg->size = len;
+    Starnet::inst->Send(toId, msg);
+    //返回值
+    //（无）
+    return 0;
+}
+
+//返回当前服务id
+int LuaAPI::Self(lua_State *luaState) {
+    Service* srv = GetCurrentService(luaState);
+    lua_pushinteger(luaState, srv ? srv->id : 0);
+    return 1;
+}
+
+//分配RPC会话号
+int LuaAPI::Genid(lua_State *luaState) {
+    Service* srv = GetCurrentService(luaState);
+    lua_pushinteger(luaState, srv ? srv->Genid() : 0);
+    return 1;
 }
 
 //开启网络监听

@@ -14,7 +14,8 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
-| `examples/main、chat、ping` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
+| `lualib/starnet.lua` | `lualib/skynet.lua` | Lua 宿主库：协程 dispatch / session RPC / sleep/fork/timeout（核心子集） |
+| `examples/main、chat、ping、db` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
 | `starnet_timer.cpp/h`（时间轮 + timer 线程，每 2.5ms 驱动） | `skynet_timer.c` | 定时器系统（极简版） |
 
 > 命名约定：所有模块统一使用 `starnet_` 前缀命名文件（对齐 skynet 目录结构，便于对照移植），如 `starnet_server.cpp`、`starnet_timer.cpp`。当前旧文件已全部重命名，`starnet.h` / `starnet.cpp` 对应主类 `Starnet`。
@@ -27,8 +28,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 - **skynet 对应**：`skynet_timer.c` / `skynet_timer.h`
 - **功能**：时间轮定时器（`TIME_NEAR` 近层 + 4 级远层）、独立 timer 线程驱动、`skynet_timeout()` 向目标服务投递 `PTYPE_RESPONSE` 超时消息。
-- **starnet 现状**：✅ 已补 `starnet_timer.cpp/h`——4 级时间轮照搬 skynet、独立 timer 线程（`StarnetStart::StartTimer`，每 2.5ms 驱动 `starnet_updatetime`）、`starnet_timeout(handle, time, session)` 到期投递 `TimerMsg`（`source=0`）到目标服务；Lua 侧 `starnet.timeout(id, ti, session)` 显式传 session，到期回调 `OnTimeout(session)`。
-- **待补**：Lua 协程模型下的 `skynet.sleep / skynet.fork / skynet.timeout(回调)`（需先补协程，见第 2 节）。
+- **starnet 现状**：✅ 已补 `starnet_timer.cpp/h`——4 级时间轮照搬 skynet、独立 timer 线程（`StarnetStart::StartTimer`，每 2.5ms 驱动 `starnet_updatetime`）、`starnet_timeout(handle, time, session)` 到期投递 `RESPONSE` 消息（`source=0`）到目标服务（对齐 skynet_timer 投 `PTYPE_RESPONSE`）。Lua 协程模型下的 `starnet.sleep / starnet.fork / starnet.timeout(回调)` 已随第 2 节补上。
 
 ### 2. Lua 协程 + Session RPC 模型
 
@@ -38,8 +38,12 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
   - `skynet.call / rawsend` 通过自增 `session` 实现同步 RPC 等待。
   - `skynet.response / ret / retpack / wakeup` 支持异步回包与唤醒。
   - `skynet.fork / skynet.timeout / skynet.sleep` 协程调度。
-- **starnet 现状**：Lua 为纯回调式，`OnServiceMsg` 直接处理消息；消息结构 `starnet_msg.h` 无 `session` 字段；无 `skynet.call` 等同步等待机制。
-- **影响**：无法做异步 RPC / 请求-应答模式，这是 skynet 的灵魂所在。
+- **starnet 现状**：✅ 已补核心子集——
+  - `lualib/starnet.lua`：协程池（`co_create` 复用）+ `dispatch_message` 入口（RESPONSE 按 `session_id_coroutine` 恢复等待协程，普通消息新建协程执行 `proto[type].dispatch`）+ fork 队列。
+  - `starnet.call / ret / response / send`：`genid` 自增 session（`Service::sessionGen`，C 侧 `starnet.genid()`），`send_session` 携带 `(type, session)`（source 取当前服务），`ServiceMsg` 增加 `session` 字段，`RESPONSE=4` 消息类型对齐 `PTYPE_RESPONSE`。
+  - `starnet.sleep / fork / timeout`：定时器到期投 RESPONSE 恢复协程（`auxtimeout`）。
+  - 服务写法改为 skynet 风格：`starnet.start` + `starnet.dispatch("lua"/"socket"/"accept"/"close", func)`；socket 消息也协程化（`dispatch_socket`）。
+- **未补**：`wakeup`（唤醒表）、协议类型体系（见第 4 节）、`skynet.queue/mqueue`、错误上报 `watching_session`。
 
 ### 3. 网络封包 / 粘包半包处理
 

@@ -24,6 +24,8 @@ public:
     bool isExiting = false;
     //二级消息队列（对齐 skynet_mq.c 的 message_queue）
     StarnetMQ mq;
+    //RPC会话号自增（对齐 skynet_context.session，C侧 genid 分配）
+    uint32_t sessionGen = 0;
 public:       
     //构造和析构函数
     Service();
@@ -35,15 +37,18 @@ public:
     //执行消息
     bool ProcessMsg();
     void ProcessMsgs(int max);  
+    //Lua状态（C绑定需要，如 genid 上下文）
+    lua_State* GetLuaState() { return luaState; }
+    //分配会话号（对齐 skynet_context_newsession）
+    uint32_t Genid() { return ++sessionGen; }
 private:
     //Lua虚拟机
     lua_State *luaState;
 private:
-    //消息处理方法
+    //消息处理
     void OnServiceMsg(shared_ptr<ServiceMsg> msg);
     void OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg);
     void OnRWMsg(shared_ptr<SocketRWMsg> msg);
-    void OnTimeout(shared_ptr<TimerMsg> msg);
-    void OnSocketData(int fd, const char* buff, int len);
-    void OnSocketClose(int fd);
+    //调用全局 starnet 表上的 Lua 函数（starnet.lua 宿主库，nargs 为已压栈参数数）
+    void CallStarnetLua(const char* func, int nargs);
 };

@@ -2,6 +2,7 @@
 #include "starnet.h"
 #include <iostream>
 #include <unistd.h>
+#include <errno.h>
 #include <string.h>
 #include "lua-starnet.h"
 
@@ -35,14 +36,61 @@ void Service::ProcessMsgs(int max) {
     }
 }
 
+//调用全局 starnet 表上的函数（starnet.lua 宿主库定义）
+void Service::CallStarnetLua(const char* func, int nargs) {
+    lua_getglobal(luaState, "starnet");
+    if(lua_isnil(luaState, -1)) {
+        lua_pop(luaState, nargs + 1);
+        return;
+    }
+    lua_getfield(luaState, -1, func);
+    if(lua_isnil(luaState, -1)) {
+        lua_pop(luaState, nargs + 2);
+        return;
+    }
+    //栈布局：... arg1..argn, starnet表, func
+    //把函数移动到所有参数之下（函数在下、参数在上，pcall 才能正确取参）
+    lua_insert(luaState, -nargs - 2);
+    //弹出 starnet 表，栈变为：func, arg1..argn
+    lua_pop(luaState, 1);
+    int isok = lua_pcall(luaState, nargs, 0, 0);
+    if(isok != 0){
+        cout << "call lua " << func << " fail " << lua_tostring(luaState, -1) << endl;
+        lua_pop(luaState, 1);
+    }
+}
+
 //创建服务后触发
 void Service::OnInit() {
     cout << "[" << id <<"] OnInit"  << endl;
     //新建Lua虚拟机
     luaState = luaL_newstate();
     luaL_openlibs(luaState); 
-    //注册Starnet系统API
+    //注册Starnet系统API（C绑定，全局 starnet 表）
     LuaAPI::Register(luaState);
+    //设置Lua路径（lualib 宿主库，对齐 skynet lua_path）
+    string luaPath = Starnet::inst->GetLuaPath();
+    lua_getglobal(luaState, "package");
+    lua_getfield(luaState, -1, "path");
+    const char* old = lua_tostring(luaState, -1);
+    string newpath = luaPath + ";" + (old ? old : "");
+    lua_pop(luaState, 1);
+    lua_pushstring(luaState, newpath.data());
+    lua_setfield(luaState, -2, "path");
+    lua_pop(luaState, 1); //package
+    //加载 starnet 宿主库（require "starnet"，其定义的 Lua 表覆盖全局 starnet）
+    lua_getglobal(luaState, "require");
+    lua_pushliteral(luaState, "starnet");
+    if(lua_pcall(luaState, 1, 1, 0) != 0) {
+        cout << "require starnet fail " << lua_tostring(luaState, -1) << endl;
+        lua_pop(luaState, 1);
+    }
+    else {
+        lua_pop(luaState, 1); //返回的 starnet 表
+    }
+    //注册表存 Service 上下文（C绑定 genid/self/send source 使用）
+    lua_pushlightuserdata(luaState, this);
+    lua_setfield(luaState, LUA_REGISTRYINDEX, "starnet_service");
     //执行Lua文件（按模板顺序查找，对齐 skynet loader.lua 的 LUA_SERVICE 拆分）
     string serviceTemplate = Starnet::inst->GetService();
     bool loaded = false;
@@ -80,64 +128,33 @@ void Service::OnInit() {
     if(!loaded) {
         cout << "service not found: " << *type << endl;
     }
-    //调用Lua函数
-    lua_getglobal(luaState, "OnInit"); 
-    lua_pushinteger(luaState, id); 
-    int isok = lua_pcall(luaState, 1, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnInit fail " << lua_tostring(luaState, -1) << endl;
-    }
 }
 
-//收到客户端数据
-void Service::OnSocketData(int fd, const char* buff, int len) {
-    //调用Lua函数
-    lua_getglobal(luaState, "OnSocketData"); 
-    lua_pushinteger(luaState, fd); 
-    lua_pushlstring(luaState, buff,len); 
-    int isok = lua_pcall(luaState, 2, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnSocketData fail " << lua_tostring(luaState, -1) << endl;
-    }
-}
-
-//关闭连接前
-void Service::OnSocketClose(int fd) {
-    cout << "OnSocketClose " << fd << endl;
-
-    //调用Lua函数
-    lua_getglobal(luaState, "OnSocketClose"); 
-    lua_pushinteger(luaState, fd); 
-    int isok = lua_pcall(luaState, 1, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnSocketClose fail " << lua_tostring(luaState, -1) << endl;
-    }
-}
-
-//收到其他服务发来的消息
+//收到服务间消息（SERVICE请求 或 RESPONSE响应）
 void Service::OnServiceMsg(shared_ptr<ServiceMsg> msg) {
-    //调用Lua函数
-    lua_getglobal(luaState, "OnServiceMsg"); 
-    lua_pushinteger(luaState, msg->source); 
-    lua_pushlstring(luaState, msg->buff.get(), msg->size); 
-    int isok = lua_pcall(luaState, 2, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnServiceMsg fail " << lua_tostring(luaState, -1) << endl;
+    //调 Lua 宿主调度入口（协程化分发，对齐 skynet.dispatch_message）
+    lua_pushinteger(luaState, msg->type);
+    lua_pushinteger(luaState, msg->session);
+    lua_pushinteger(luaState, msg->source);
+    if(msg->buff && msg->size > 0) {
+        lua_pushlstring(luaState, msg->buff.get(), msg->size);
     }
+    else {
+        lua_pushlstring(luaState, "", 0);
+    }
+    lua_pushinteger(luaState, (int)msg->size);
+    CallStarnetLua("dispatch_message", 5);
 }
 
 //新连接
 void Service::OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg) {
     cout << "OnAcceptMsg " << msg->clientFd << endl;
-
-    //调用Lua函数
-    lua_getglobal(luaState, "OnAcceptMsg"); 
-    lua_pushinteger(luaState, msg->listenFd); 
-    lua_pushinteger(luaState, msg->clientFd); 
-    int isok = lua_pcall(luaState, 2, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnAcceptMsg fail " << lua_tostring(luaState, -1) << endl;
-    }
+    //协程化分发 accept（对齐 skynet.dispatch("accept", ...)）
+    lua_pushinteger(luaState, BaseMsg::TYPE::SOCKET_ACCEPT);
+    lua_pushinteger(luaState, msg->clientFd);
+    lua_pushinteger(luaState, msg->listenFd);
+    lua_pushinteger(luaState, 0);
+    CallStarnetLua("dispatch_socket", 4);
 }
 
 //套接字可读
@@ -149,38 +166,35 @@ void Service::OnRWMsg(shared_ptr<SocketRWMsg> msg) {
         char buff[BUFFSIZE];
         int len = 0;
         do {
-            len = read(fd, &buff, BUFFSIZE);
+            len = read(fd, buff, BUFFSIZE);
             if(len > 0){
-                OnSocketData(fd, buff, len);
+                //协程化分发 socket 数据（对齐 skynet.dispatch("socket", ...)）
+                lua_pushinteger(luaState, BaseMsg::TYPE::SOCKET_RW);
+                lua_pushinteger(luaState, fd);
+                lua_pushlstring(luaState, buff, len);
+                lua_pushinteger(luaState, len);
+                CallStarnetLua("dispatch_socket", 4);
             }
         }while(len == BUFFSIZE);
 
         if(len <= 0 && errno != EAGAIN) {
             if(Starnet::inst->GetConn(fd)) {
-                OnSocketClose(fd);
+                //关闭通知（协程化分发 close）
+                lua_pushinteger(luaState, BaseMsg::TYPE::SOCKET_RW);
+                lua_pushinteger(luaState, fd);
+                lua_pushnil(luaState);
+                lua_pushinteger(luaState, -1);
+                CallStarnetLua("dispatch_socket", 4);
                 Starnet::inst->CloseConn(fd);
             }
         }
     }
 }
 
-
-
-//定时器到期
-void Service::OnTimeout(shared_ptr<TimerMsg> msg) {
-    //调用Lua函数
-    lua_getglobal(luaState, "OnTimeout"); 
-    lua_pushinteger(luaState, msg->session); 
-    int isok = lua_pcall(luaState, 1, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnTimeout fail " << lua_tostring(luaState, -1) << endl;
-    }
-}
-
 //收到消息时触发
 void Service::OnMsg(shared_ptr<BaseMsg> msg) {
-    //SERVICE
-    if(msg->type == BaseMsg::TYPE::SERVICE) {
+    //SERVICE / RESPONSE
+    if(msg->type == BaseMsg::TYPE::SERVICE || msg->type == BaseMsg::TYPE::RESPONSE) {
         auto m = dynamic_pointer_cast<ServiceMsg>(msg);
         OnServiceMsg(m);
     }
@@ -194,23 +208,23 @@ void Service::OnMsg(shared_ptr<BaseMsg> msg) {
         auto m = dynamic_pointer_cast<SocketRWMsg>(msg);
         OnRWMsg(m);
     }
-    //TIMER
-    else if(msg->type == BaseMsg::TYPE::TIMER) {
-        auto m = dynamic_pointer_cast<TimerMsg>(msg);
-        OnTimeout(m);
-    }
 }
 
 
 //退出服务时触发
 void Service::OnExit() {
     cout << "[" << id <<"] OnExit"  << endl;
-    //调用Lua函数
+    //调用Lua函数（新风格脚本无全局 OnExit，需判空）
     lua_getglobal(luaState, "OnExit"); 
-    int isok = lua_pcall(luaState, 0, 0, 0);
-    if(isok != 0){ //成功返回值为0，否则代表失败.
-         cout << "call lua OnExit fail " << 
-            lua_tostring(luaState, -1) << endl;
+    if(lua_isfunction(luaState, -1)) {
+        int isok = lua_pcall(luaState, 0, 0, 0);
+        if(isok != 0){ //成功返回值为0，否则代表失败.
+             cout << "call lua OnExit fail " << 
+                lua_tostring(luaState, -1) << endl;
+        }
+    }
+    else {
+        lua_pop(luaState, 1);
     }
     //关闭lua虚拟机
     lua_close(luaState);

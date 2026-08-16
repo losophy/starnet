@@ -13,6 +13,7 @@ StarnetConfig StarnetConfig::Default() {
     cfg.service = "../service/?/init.lua;../examples/?/init.lua";
     cfg.start = "main";
     cfg.thread = 3;
+    cfg.luaPath = "../lualib/?.lua";
     return cfg;
 }
 
@@ -55,6 +56,12 @@ StarnetConfig StarnetConfig::Load(const char* filename) {
         lua_getfield(L, -1, "thread");
         if(lua_isinteger(L, -1)) {
             cfg.thread = lua_tointeger(L, -1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, -1, "luaPath");
+        if(lua_isstring(L, -1)) {
+            cfg.luaPath = lua_tostring(L, -1);
         }
         lua_pop(L, 1);
     }

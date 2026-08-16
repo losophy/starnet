@@ -3,7 +3,7 @@
 
 using namespace std;
 
-//启动配置（对齐 skynet config：luaservice / start / thread）
+//启动配置（对齐 skynet config：luaservice / start / thread / lua_path）
 struct StarnetConfig {
     //服务搜索模板（;分隔多路径，?为服务名占位，对齐 skynet 的 luaservice/LUA_SERVICE）
     string service;
@@ -11,6 +11,8 @@ struct StarnetConfig {
     string start;
     //worker线程数（对齐 skynet 的 thread）
     int thread;
+    //Lua模块搜索路径（lualib 宿主库，对齐 skynet 的 lua_path）
+    string luaPath;
 
     //默认配置（对齐 skynet optstring 的默认值精神）
     static StarnetConfig Default();

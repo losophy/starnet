@@ -1,0 +1,311 @@
+--starnet Lua宿主库（对齐 skynet.lua 核心子集）
+--每条消息在独立协程中处理（starnet.dispatch）；session 匹配 RPC 请求/响应
+
+local c = _G.starnet  -- C 绑定表（lua-starnet.cpp 注册）
+
+local coroutine = coroutine
+local table = table
+local assert = assert
+local error = error
+local pcall = pcall
+local tremove = table.remove
+local tpack = table.pack
+local tunpack = table.unpack
+
+local cresume = coroutine.resume
+local running_thread = nil
+
+local function coroutine_resume(co, ...)
+    running_thread = co
+    return cresume(co, ...)
+end
+local coroutine_yield = coroutine.yield
+local coroutine_create = coroutine.create
+
+--消息类型（对齐 BaseMsg::TYPE / skynet PTYPE_*）
+local PTYPE_SERVICE = 1
+local PTYPE_SOCKET_ACCEPT = 2
+local PTYPE_SOCKET_RW = 3
+local PTYPE_RESPONSE = 4
+
+local starnet = {}
+
+--协议表（对齐 skynet register_protocol + proto：name 与 id 双索引）
+local proto = {}
+
+local function pack_string(...) return ... end
+local function unpack_string(...) return ... end
+
+function starnet.register_protocol(class)
+    local name = class.name
+    local id = class.id
+    proto[name] = class
+    if id then
+        proto[id] = class
+    end
+end
+
+--内置协议
+starnet.register_protocol({ name = "lua", id = PTYPE_SERVICE, pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "accept", pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "socket", pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "close", pack = pack_string, unpack = unpack_string })
+
+--协程池
+local coroutine_pool = {}
+
+--session 映射（对齐 skynet.lua）
+local session_id_coroutine = {}       -- session -> co（等待恢复的协程）
+local session_coroutine_id = {}       -- co -> session（当前协程上下文）
+local session_coroutine_address = {}  -- co -> source（当前协程上下文）
+
+local fork_queue = { h = 1, t = 0 }
+
+--从协程池创建/复用协程（对齐 skynet.lua co_create）
+local function co_create(f)
+    local co = tremove(coroutine_pool)
+    if co == nil then
+        co = coroutine_create(function(...)
+            f(...)
+            while true do
+                local address = session_coroutine_address[co]
+                if address then
+                    session_coroutine_id[co] = nil
+                    session_coroutine_address[co] = nil
+                end
+                --回收协程，等待新主函数
+                f = nil
+                coroutine_pool[#coroutine_pool+1] = co
+                f = coroutine_yield("SUSPEND")
+                f(coroutine_yield())
+            end
+        end)
+    else
+        --把新主函数传给池协程，并恢复 running_thread
+        local running = running_thread
+        coroutine_resume(co, f)
+        running_thread = running
+    end
+    return co
+end
+
+--协程调度状态机（对齐 skynet.lua suspend）
+local function suspend(co, result, command)
+    if not result then
+        error("coroutine error: " .. tostring(command))
+    end
+    if command == "SUSPEND" then
+        --协程主动挂起，等新消息恢复
+    elseif command == "QUIT" then
+        coroutine.close(co)
+    end
+end
+
+--定时器等待：分配 session 并注册（对齐 skynet auxtimeout）
+local function auxtimeout(ti)
+    local session = c.genid()
+    c.timeout(c.self(), ti, session)
+    return session
+end
+
+--消息分发入口（由 C++ Service::OnMsg 调用，对齐 skynet.dispatch_message）
+local function raw_dispatch_message(type, session, source, buff, sz)
+    --RPC响应：恢复等待的协程
+    if type == PTYPE_RESPONSE then
+        local co = session_id_coroutine[session]
+        if co then
+            session_id_coroutine[session] = nil
+            suspend(co, coroutine_resume(co, true, buff, sz))
+        end
+        return
+    end
+    --普通消息：新协程执行对应 dispatch 回调
+    local p = proto[type]
+    if p and p.dispatch then
+        local f = p.dispatch
+        local co = co_create(f)
+        session_coroutine_id[co] = session
+        session_coroutine_address[co] = source
+        suspend(co, coroutine_resume(co, session, source, p.unpack(buff, sz)))
+    end
+end
+
+function starnet.dispatch_message(...)
+    local ok, err = pcall(raw_dispatch_message, ...)
+    --处理 fork 队列（对齐 skynet dispatch_message）
+    while true do
+        if fork_queue.h > fork_queue.t then
+            fork_queue.h = 1
+            fork_queue.t = 0
+            break
+        end
+        local h = fork_queue.h
+        local co = fork_queue[h]
+        fork_queue[h] = nil
+        fork_queue.h = h + 1
+        local fork_ok, fork_err = coroutine_resume(co)
+        if not fork_ok then
+            if ok then
+                ok = false
+                err = tostring(fork_err)
+            else
+                err = tostring(err) .. "\n" .. tostring(fork_err)
+            end
+        end
+    end
+    if not ok then
+        error(tostring(err))
+    end
+end
+
+--socket 消息分发（由 C++ Service::OnMsg 调用，协程化）
+local function dispatch_in_coroutine(f, ...)
+    local co = co_create(f)
+    session_coroutine_id[co] = 0
+    session_coroutine_address[co] = 0
+    suspend(co, coroutine_resume(co, ...))
+end
+
+function starnet.dispatch_socket(type, a, b, c)
+    if type == PTYPE_SOCKET_ACCEPT then
+        local p = proto["accept"]
+        if p and p.dispatch then
+            dispatch_in_coroutine(p.dispatch, a, b)  -- func(clientfd, listenfd)
+        end
+    elseif type == PTYPE_SOCKET_RW then
+        if c == -1 then
+            local p = proto["close"]
+            if p and p.dispatch then
+                dispatch_in_coroutine(p.dispatch, a)  -- func(fd)
+            end
+        else
+            local p = proto["socket"]
+            if p and p.dispatch then
+                dispatch_in_coroutine(p.dispatch, a, b, c)  -- func(fd, buff, len)
+            end
+        end
+    end
+end
+
+--服务元函数
+function starnet.self()
+    return c.self()
+end
+
+function starnet.exit()
+    c.KillService(c.self())
+end
+
+--启动函数（对齐 skynet.start：主协程执行）
+function starnet.start(func)
+    local co = co_create(func)
+    session_coroutine_id[co] = 0
+    session_coroutine_address[co] = 0
+    suspend(co, coroutine_resume(co))
+end
+
+--注册消息处理函数（对齐 skynet.dispatch）
+function starnet.dispatch(typename, func)
+    local p = proto[typename]
+    if p == nil then
+        error("dispatch unknown protocol: " .. typename)
+    end
+    p.dispatch = func
+end
+
+--发送消息（无需响应，session=0，对齐 skynet.send/rawsend）
+function starnet.send(addr, typename, ...)
+    local p = proto[typename]
+    local msg = p.pack(...) or ""
+    c.send_session(addr, p.id, 0, msg)
+end
+
+--RPC请求：分配 session 发送并挂起等待响应（对齐 skynet.call）
+local function yield_call(service, session)
+    session_id_coroutine[session] = running_thread
+    local ok, msg, sz = coroutine_yield("SUSPEND")
+    if not ok then
+        error("call failed")
+    end
+    return msg, sz
+end
+
+function starnet.call(addr, typename, ...)
+    local p = proto[typename]
+    local msg = p.pack(...) or ""
+    local session = c.genid()
+    c.send_session(addr, p.id, session, msg)
+    return p.unpack(yield_call(addr, session))
+end
+
+--回包（对齐 skynet.ret：把结果发回请求方）
+function starnet.ret(msg, sz)
+    msg = msg or ""
+    local co = running_thread
+    local co_session = session_coroutine_id[co]
+    if co_session == nil then
+        error("No session")
+    end
+    session_coroutine_id[co] = nil
+    if co_session == 0 then
+        return false  -- send 消息不需要回包
+    end
+    local co_address = session_coroutine_address[co]
+    c.send_session(co_address, PTYPE_RESPONSE, co_session, msg)
+    return true
+end
+
+--异步回包（对齐 skynet.response：返回一次性回包函数）
+function starnet.response()
+    local co = running_thread
+    local co_session = assert(session_coroutine_id[co], "no session")
+    session_coroutine_id[co] = nil
+    local co_address = session_coroutine_address[co]
+    if co_session == 0 then
+        return function() return false end
+    end
+    local sent = false
+    return function(msg, sz)
+        if sent then
+            return false
+        end
+        sent = true
+        c.send_session(co_address, PTYPE_RESPONSE, co_session, msg or "")
+        return true
+    end
+end
+
+--协程挂起指定时间（centisecond，对齐 skynet.sleep）
+function starnet.sleep(ti)
+    local session = auxtimeout(ti)
+    session_id_coroutine[session] = running_thread
+    local ok, ret = coroutine_yield("SUSPEND")
+    if not ok then
+        error(tostring(ret))
+    end
+end
+
+--新建协程延后执行（对齐 skynet.fork）
+function starnet.fork(func, ...)
+    local args = tpack(...)
+    local co = co_create(function()
+        func(tunpack(args, 1, args.n))
+    end)
+    fork_queue[fork_queue.t + 1] = co
+    fork_queue.t = fork_queue.t + 1
+    return co
+end
+
+--定时器回调（对齐 skynet.timeout：ti centisecond 后执行 func）
+function starnet.timeout(ti, func)
+    local session = auxtimeout(ti)
+    local co = co_create(func)
+    session_id_coroutine[session] = co
+    return co
+end
+
+--用 Lua 表覆盖 C 表（starnet.xxx 优先走宿主库封装，其余字段回退 C 绑定）
+setmetatable(starnet, { __index = c })
+_G.starnet = starnet
+
+return starnet
