@@ -12,7 +12,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列 + `MQ_OVERLOAD` 告警（指数退避阈值）+ `Clear(dropFunc)` 丢弃通知 |
 | `StarnetStart::StartWorker` 的 weight 表 + `Worker::weight` | `skynet_start.c` weight[] + `skynet_context_message_dispatch` | weight 加权调度：`<0` 每轮 1 条，`>=0` 每轮 `队列长度>>weight` 条 |
 | `starnet_start.cpp/h`（`StarnetStart` 线程池+休眠唤醒）+ `starnet_worker.cpp` | `skynet_start.c` | 线程池管理、worker 线程 |
-| `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
+| `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版；读已统一到 socket 线程：TCP 循环 read / UDP 循环 recvfrom，引擎读、服务收现成数据） |
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
 | `lualib/starnet.lua` | `lualib/skynet.lua` | Lua 宿主库：协程 dispatch / session RPC / sleep/fork/timeout（核心子集） |
@@ -62,15 +62,15 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
   - 发送 `starnet.pack(msg)` 加 2 字节大端长度头（最大 0xFFFF）。
   - 接收 `netpack.filter(queue, fd, buff, size)` 按 fd 维护 `uncomplete` 半包链表，解析完整包（`"data"`）或多个包（`"more"` + `netpack.pop` 循环取）；连接关闭 `netpack.close` 清半包。
   - `starnet.lua` 的 `dispatch_socket` 数据分支接入 filter，`dispatch("socket")` 收到的是**完整包**（无粘包半包）；`chat` 广播用 `starnet.Write(fd, starnet.pack(msg))`。
-  - 读取仍在 worker 线程（`Service::OnRWMsg` read 512 字节裸数据，对齐 skynet 每次 read 即投递、Lua 侧解析）。
-- **未补**：`socket_server.c` 的动态读缓冲大小（`MIN_READ_BUFFER` 增缩）、`netpack.tostring`（已字符串化）、读缓冲移到 socket 线程。
+  - **读取已统一到 socket 线程**（对齐 skynet `socket_server.c` 读缓冲 + `read` 即投递）：`SocketServer::ReadData` 循环 `read(fd, 8192)` 到 EAGAIN，每块投一条 `SocketMsg{DATA, fd, buff}`，worker 侧直接用现成数据（`Service::OnSocketMsg` 不再 read）。
+- **未补**：`socket_server.c` 的动态读缓冲大小（`MIN_READ_BUFFER` 增缩，starnet 用固定 8192 块）。
 
 ### 4. 协议类型分发体系
 
 - **skynet 对应**：`skynet.h` 的 `PTYPE_*`（TEXT/RESPONSE/SOCKET/LUA/ERROR…）+ `skynet.register_protocol` + `skynet.dispatch`
 - **功能**：消息按类型路由到不同回调；响应自动匹配请求 session。
 - **starnet 现状**：✅ 已补——`BaseMsg::TYPE` 对齐 `skynet.h` 的 `PTYPE_*` 编号（TEXT=0/RESPONSE=1/…/SOCKET=6/ERROR=7/LUA=10…）：
-  - `SocketAcceptMsg`+`SocketRWMsg` 合并为 `SocketMsg`（`type=SOCKET` + `SUBTYPE{DATA=1,CLOSE=3,ACCEPT=4}`，对齐 `SKYNET_SOCKET_TYPE_*`），socket 投递统一走 `OnSocketMsg`。
+  - `SocketAcceptMsg`+`SocketRWMsg` 合并为 `SocketMsg`（`type=SOCKET` + `SUBTYPE{DATA=1,CLOSE=3,ACCEPT=4,UDP=6}`，对齐 `SKYNET_SOCKET_TYPE_*`），socket 投递统一走 `OnSocketMsg`；UDP 报文带对端地址（`udpAddr` 二进制打包，对齐 skynet `gen_udp_address`）。
   - `starnet.lua` 暴露 `starnet.PTYPE_*` 常量表（对齐 skynet.lua）；内置协议 `"lua"` id=`PTYPE_LUA(10)`、`"socket"` id=`PTYPE_SOCKET(6)`。
   - `starnet.register_protocol` 加冲突/范围校验；`dispatch_message` 对未注册协议类型打印告警（含 source/session）。
   - `dispatch_socket` 首参改传 socket 子类型（ACCEPT/DATA/CLOSE），`dispatch("accept"/"socket"/"close")` 名字接口不变。
@@ -100,6 +100,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **内存管理** | `malloc_hook.c` / `mem_info.c` | ✅ 已补：`starnet_mem.cpp/h`（进程 RSS 报告，对齐 `mem_info.c`） | 决策：内存统计用「进程 RSS」，不做全局 `operator new` 重载（详见下方说明） |
 | **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量）；示例 `thread=8`（对齐 skynet 标准），避免 thread≤4 时全部 weight=-1（每轮 1 条）的低效 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | ✅ 已补：服务退出丢弃残留消息时给发送方回 `PTYPE_ERROR`（对齐 `drop_message`）；Lua 侧 `call` 收到 ERROR 报错退出 | 决策：SocketMsg 不加 source 字段（详见下方说明）；队列内存随 Service 生命周期（`shared_ptr` 自管） |
+| **UDP** | `socket_server.c` 的 `socket_server_udp*` / `skynet_socket.c` 的 `SKYNET_SOCKET_TYPE_UDP` | ✅ 已补：`AddUdp/SetUdpAddress/SendUdp`（`starnet.udp/udp_connect/send_udp`），`getaddrinfo` 支持 IPv4/IPv6，socket 线程循环 `recvfrom` 读（读归引擎），报文带二进制对端地址（对齐 `gen_udp_address`） | 决策：UDP 无写缓冲（直接 `sendto`；skynet 的 UDP 写缓冲是「与 TCP 共用一套发送流程」的副产品，详见下方说明）；报式无粘包，`dispatch("udp", fd, msg, addr, port)` 不走 netpack |
 
 > **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：
 > 1. **对齐 skynet 实际做法**——skynet 的 `mem_info.c` 报告的就是进程 RSS（读 `/proc/self/status` 的 `VmRSS`），`skynet.mem()` 返回进程级内存，并非单服务统计；
@@ -124,7 +125,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 ### 网络能力
 
-- **UDP**：`skynet_socket_udp_*` 系列（starnet 完全无 UDP）。
+- **UDP**：✅ 已补（`starnet.udp/udp_connect/send_udp`，IPv4/IPv6，socket 线程读，无写缓冲，见现状表 UDP 行）。
 - **主动连接**：`skynet_socket_connect`（starnet 只能 listen）。
 - **绑定已有 fd**：`skynet_socket_bind`。
 - **写缓冲优先级**：`sendbuffer_lowpriority`（starnet 单队列）。
@@ -174,10 +175,16 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 |---|---|---|
 | **P0（地基）** | 1. 定时器系统（时间轮 + timer 线程） | 无 |
 | **P1（灵魂）** | 2. Lua 协程 + Session RPC 层（`skynet.call/response/wakeup`） | P0 |
-| **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
+| **P2（网络）** | 3. 网络封包层（长度头粘包处理 ✅ + 读统一到 socket 线程 ✅，固定 8192 块未补动态增缩）；accept 循环 | P1 |
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP（✅ 已完成）、connect、标准服务集、lualib | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
+
+> **读位置与 UDP 写缓冲（本次 UDP + 读迁移的决策）**：
+> 1. **读统一到 socket 线程**——TCP `ReadData`（循环 `read` 8192 块）与 UDP `ReadUdp`（循环 `recvfrom` 65536 包）都由 socket 线程执行，投 `SocketMsg{DATA/UDP, fd, buff, [udpAddr]}`；worker 侧 `OnSocketMsg` 直接用现成数据。读是引擎操作，业务层不再碰 `read/recvfrom`（对齐 skynet `socket_server.c` 统一读）。EOF/错误检测也随读迁到 socket 线程（`read==0 → SOCKET_CLOSE`，对齐 skynet）。
+> 2. **UDP 无写缓冲**——skynet 的 UDP 写缓冲（`write_buffer_udp` + 发送队列）是「TCP/UDP 共用同一个 `struct socket` 和同一套发送流程（写缓冲 + EPOLLOUT 刷写）」的**副产品**：UDP socket 挂进统一发送路径就必须配队列，哪怕 UDP 一发就走、堵了就丢包根本不需要。starnet 无此架构负担——UDP 发送直接 `sendto`，不混入 TCP 写缓冲。
+> 3. **UDP 地址二进制打包**（对齐 skynet `gen_udp_address`）——消息传递用 1 字节 family + 2 字节端口 + 4/16 字节 IP 的紧凑二进制（省内存），`Service::OnSocketMsg` 解析成 ip 字符串 + 端口再交给 Lua（`dispatch("udp", fd, msg, addr, port)`，报式无粘包不走 netpack）。
+> 4. **TCP 读缓冲固定 8192 块**——skynet 每连接动态读缓冲（`MIN_READ_BUFFER` 增缩），starnet 用固定栈缓冲，未补动态增缩。

@@ -1,14 +1,63 @@
 #include "starnet_socket_server.h"
 #include "starnet_logger.h"
 #include <iostream>
+#include <stdio.h>
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
 
 using namespace std;
+
+//打包 sockaddr → udpAddr（二进制：1 字节 family + 2 字节端口 + 4/16 字节 IP，对齐 skynet gen_udp_address）
+static string PackUdpAddress(const struct sockaddr* sa) {
+    string addr;
+    if(sa->sa_family == AF_INET) {
+        const struct sockaddr_in* v4 = (const struct sockaddr_in*)sa;
+        addr.push_back((char)AF_INET);
+        addr.append((const char*)&v4->sin_port, 2);
+        addr.append((const char*)&v4->sin_addr, 4);
+    }
+    else {
+        const struct sockaddr_in6* v6 = (const struct sockaddr_in6*)sa;
+        addr.push_back((char)AF_INET6);
+        addr.append((const char*)&v6->sin6_port, 2);
+        addr.append((const char*)&v6->sin6_addr, 16);
+    }
+    return addr;
+}
+
+//解包 udpAddr → sockaddr（供 sendto）
+static int UnpackUdpAddress(const string& udpAddr, struct sockaddr_storage* sa, socklen_t* slen) {
+    if(udpAddr.size() < 3) return -1;
+    int family = (uint8_t)udpAddr[0];
+    if(family == AF_INET) {
+        if(udpAddr.size() < 7) return -1;
+        struct sockaddr_in* v4 = (struct sockaddr_in*)sa;
+        memset(v4, 0, sizeof(*v4));
+        v4->sin_family = AF_INET;
+        memcpy(&v4->sin_port, udpAddr.data() + 1, 2);
+        memcpy(&v4->sin_addr, udpAddr.data() + 3, 4);
+        *slen = sizeof(*v4);
+    }
+    else if(family == AF_INET6) {
+        if(udpAddr.size() < 19) return -1;
+        struct sockaddr_in6* v6 = (struct sockaddr_in6*)sa;
+        memset(v6, 0, sizeof(*v6));
+        v6->sin6_family = AF_INET6;
+        memcpy(&v6->sin6_port, udpAddr.data() + 1, 2);
+        memcpy(&v6->sin6_addr, udpAddr.data() + 3, 16);
+        *slen = sizeof(*v6);
+    }
+    else {
+        return -1;
+    }
+    return 0;
+}
 
 //初始化
 void SocketServer::Init() {
@@ -57,23 +106,106 @@ void SocketServer::OnAccept(shared_ptr<Conn> conn) {
     }
 }
 
-//可读可写
+//可读可写（socket 线程执行）
 void SocketServer::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
     starnet_log("OnRW fd:%d r:%d w:%d", conn->fd, r, w);
     //可写：由引擎内部刷写缓冲（对齐 socket_server.c，不通知服务）
     if(w) {
         OnWriteable(conn->fd);
     }
-    //可读：通知服务（读逻辑暂留业务层）
+    //可读：读是引擎操作，由 socket 线程读出数据再投递（对齐 skynet，服务收现成数据）
     if(r) {
-        auto msg = make_shared<SocketMsg>();
-        msg->type = BaseMsg::TYPE::SOCKET;
-        msg->subtype = SocketMsg::SUBTYPE::DATA;
-        msg->fd = conn->fd;
-        if(listener) {
-            listener->OnSocketMsg(msg, conn->serviceId);
+        if(conn->type == Conn::TYPE::UDP) {
+            ReadUdp(conn);
+        }
+        else {
+            ReadData(conn);
         }
     }
+}
+
+//TCP 可读：循环 read 到读完/EAGAIN，每块投递一条 DATA 消息
+void SocketServer::ReadData(shared_ptr<Conn> conn) {
+    const int BUFFSIZE = 8192;
+    char buff[BUFFSIZE];
+    int fd = conn->fd;
+    for(;;) {
+        int len = read(fd, buff, BUFFSIZE);
+        if(len > 0) {
+            auto msg = make_shared<SocketMsg>();
+            msg->type = BaseMsg::TYPE::SOCKET;
+            msg->subtype = SocketMsg::SUBTYPE::DATA;
+            msg->fd = fd;
+            msg->buff.assign(buff, len);
+            if(listener) {
+                listener->OnSocketMsg(msg, conn->serviceId);
+            }
+            //内核已读空则停止（ET 下剩余数据会再次触发 EPOLLIN）
+            if(len < BUFFSIZE) {
+                break;
+            }
+        }
+        else if(len == 0) {
+            //EOF：对端关闭
+            NotifyClose(conn);
+            break;
+        }
+        else {
+            if(errno != EAGAIN && errno != EINTR) {
+                //真实错误：关闭
+                NotifyClose(conn);
+            }
+            break;
+        }
+    }
+}
+
+//UDP 可读：循环 recvfrom 到 EAGAIN，每包投递一条 UDP 消息（数据 + 对端地址）
+void SocketServer::ReadUdp(shared_ptr<Conn> conn) {
+    const int MAX_UDP = 65536;
+    char buff[MAX_UDP];
+    int fd = conn->fd;
+    for(;;) {
+        struct sockaddr_storage sa;
+        socklen_t slen = sizeof(sa);
+        int len = recvfrom(fd, buff, MAX_UDP, 0, (struct sockaddr*)&sa, &slen);
+        if(len > 0) {
+            auto msg = make_shared<SocketMsg>();
+            msg->type = BaseMsg::TYPE::SOCKET;
+            msg->subtype = SocketMsg::SUBTYPE::UDP;
+            msg->fd = fd;
+            msg->buff.assign(buff, len);
+            msg->udpAddr = PackUdpAddress((struct sockaddr*)&sa);
+            if(listener) {
+                listener->OnSocketMsg(msg, conn->serviceId);
+            }
+        }
+        else if(len < 0) {
+            if(errno == EAGAIN || errno == EINTR) {
+                break;
+            }
+            starnet_error("recvfrom error, fd=%d errno=%d", fd, errno);
+            break;
+        }
+        else {
+            //UDP 空包，忽略继续
+            break;
+        }
+    }
+}
+
+//读 EOF/错误：通知 close + 清理（对齐 skynet read==0 → SOCKET_CLOSE）
+void SocketServer::NotifyClose(shared_ptr<Conn> conn) {
+    auto msg = make_shared<SocketMsg>();
+    msg->type = BaseMsg::TYPE::SOCKET;
+    msg->subtype = SocketMsg::SUBTYPE::CLOSE;
+    msg->fd = conn->fd;
+    if(listener) {
+        listener->OnSocketMsg(msg, conn->serviceId);
+    }
+    RemoveConn(conn->fd);
+    close(conn->fd);
+    RemoveEvent(conn->fd);
 }
 
 //处理事件
@@ -375,4 +507,105 @@ void SocketServer::LingerClose(int fd) {
         close(fd);
         RemoveEvent(fd);
     }
+}
+
+//UDP：创建 socket（getaddrinfo 支持 IPv4/IPv6；bind_=true 则 bind 到 addr:port，addr 空为任意地址）
+int SocketServer::AddUdp(uint32_t serviceId, const char* addr, int port, bool bind_) {
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    if(bind_ && addr == NULL) {
+        hints.ai_flags = AI_PASSIVE;
+    }
+    char portstr[16];
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    int rc = getaddrinfo(addr, portstr, &hints, &res);
+    if(rc != 0 || res == NULL) {
+        starnet_error("AddUdp getaddrinfo fail, addr=%s port=%d rc=%d", addr ? addr : "(null)", port, rc);
+        return -1;
+    }
+    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if(fd < 0) {
+        starnet_error("AddUdp socket fail, errno=%d", errno);
+        freeaddrinfo(res);
+        return -1;
+    }
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+    if(bind_) {
+        if(bind(fd, res->ai_addr, res->ai_addrlen) == -1) {
+            starnet_error("AddUdp bind fail, addr=%s port=%d errno=%d", addr ? addr : "(null)", port, errno);
+            close(fd);
+            freeaddrinfo(res);
+            return -1;
+        }
+    }
+    freeaddrinfo(res);
+    AddConn(fd, serviceId, Conn::TYPE::UDP);
+    AddEvent(fd);
+    return fd;
+}
+
+//UDP：设置默认对端地址（对齐 skynet socket_server_udp_connect，存 Conn.udpAddr）
+int SocketServer::SetUdpAddress(int fd, const char* addr, int port) {
+    shared_ptr<Conn> conn = GetConn(fd);
+    if(conn == NULL) {
+        return -1;
+    }
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_DGRAM;
+    char portstr[16];
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    int rc = getaddrinfo(addr, portstr, &hints, &res);
+    if(rc != 0 || res == NULL) {
+        starnet_error("SetUdpAddress getaddrinfo fail, addr=%s port=%d rc=%d", addr ? addr : "(null)", port, rc);
+        return -1;
+    }
+    conn->udpAddr = PackUdpAddress(res->ai_addr);
+    freeaddrinfo(res);
+    return 0;
+}
+
+//UDP：发送（addr 为空用默认对端；直接 sendto，无写缓冲）
+int SocketServer::SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len) {
+    shared_ptr<Conn> conn = GetConn(fd);
+    if(conn == NULL) {
+        return -1;
+    }
+    struct sockaddr_storage sa;
+    socklen_t slen;
+    if(addr) {
+        struct addrinfo hints, *res = NULL;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_DGRAM;
+        char portstr[16];
+        snprintf(portstr, sizeof(portstr), "%d", port);
+        int rc = getaddrinfo(addr, portstr, &hints, &res);
+        if(rc != 0 || res == NULL) {
+            starnet_error("SendUdp getaddrinfo fail, addr=%s port=%d rc=%d", addr, port, rc);
+            return -1;
+        }
+        memcpy(&sa, res->ai_addr, res->ai_addrlen);
+        slen = res->ai_addrlen;
+        freeaddrinfo(res);
+    }
+    else {
+        if(conn->udpAddr.empty()) {
+            starnet_error("SendUdp no default address, fd=%d", fd);
+            return -1;
+        }
+        if(UnpackUdpAddress(conn->udpAddr, &sa, &slen) < 0) {
+            starnet_error("SendUdp unpack address fail, fd=%d", fd);
+            return -1;
+        }
+    }
+    int n = sendto(fd, buff.get(), len, 0, (struct sockaddr*)&sa, slen);
+    if(n < 0) {
+        starnet_error("SendUdp sendto fail, fd=%d errno=%d", fd, errno);
+        return -1;
+    }
+    return n;
 }

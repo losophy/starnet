@@ -2,7 +2,7 @@
 
 演示/示例服务目录（对齐 skynet 的 `examples/`）。与 `../service/`（框架官方服务）区分：
 - `service/`：框架自带的系统服务，当前为空
-- `examples/`：演示如何写服务，当前有 `main`、`chat`、`ping`、`db`
+- `examples/`：演示如何写服务，当前有 `main`、`chat`、`ping`、`db`、`udp`
 
 ## 服务搜索顺序
 
@@ -81,9 +81,10 @@ end)
 | `starnet.fork(func, ...)` | 新建协程延后执行 | `skynet.fork` |
 | `starnet.timeout(ti, func)` | ti centisecond 后执行 func | `skynet.timeout` |
 | `starnet.Listen(port, id)` / `starnet.Write(fd, buff)` / `starnet.CloseConn(fd)` | socket 操作（回退到 C 绑定） | `skynet.socket` |
+| `starnet.udp(addr, port)` / `starnet.udp_connect(addr, port)` / `starnet.send_udp(fd, msg, addr, port)` | UDP：监听 / 连接（默认对端）/ 发送（addr 空用默认对端） | `skynet.udp` / `skynet.udp_connect` / `skynet.send_udp` |
 | `starnet.PTYPE_*` | 协议类型常量（TEXT/RESPONSE/SOCKET/LUA…，对齐 `skynet.h`） | `skynet.PTYPE_*` |
 
-socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket`(fd, msg)、`close`(fd)。其中 `socket` 回调收到的是**完整数据包**——TCP 粘包/半包由 `netpack` 自动解析（2 字节大端长度头，对齐 skynet）；发送方需用 `starnet.pack(msg)` 加长度头：
+socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket`(fd, msg)、`close`(fd)、`udp`(fd, msg, addr, port)。其中 `socket` 回调收到的是**完整数据包**——TCP 粘包/半包由 `netpack` 自动解析（2 字节大端长度头，对齐 skynet）；发送方需用 `starnet.pack(msg)` 加长度头；`udp` 报式无粘包，直接收完整报文：
 
 ```lua
 starnet.dispatch("socket", function(fd, msg)
@@ -95,7 +96,7 @@ end)
 ## 示例说明
 
 ### main
-启动入口示例。`starnet.start` 里拉起 `chat`/`ping`/`db`，演示：
+启动入口示例。`starnet.start` 里拉起 `chat`/`ping`/`db`/`udp`，演示：
 - `starnet.call` RPC 请求-应答（call `ping`、`db`）
 - `starnet.sleep` 协程挂起
 - `starnet.timeout` 每秒心跳（回调续订）
@@ -124,6 +125,19 @@ RPC 请求-应答示例：
 
 ### db
 最简 RPC 服务示例：收到 `"lua"` 请求后 `starnet.ret("pong:"..buff)` 回包。
+
+### udp
+UDP echo 示例（绑定 8003 端口）：
+- `starnet.start` 里 `starnet.udp("0.0.0.0", 8003)` 绑定 UDP 端口
+- `dispatch("udp", ...)` 收到报文（含对端 `addr`/`port`），`starnet.send_udp(fd, msg, addr, port)` 原样回包
+
+联调方式（另开终端）：
+
+```sh
+echo hello | nc -u 127.0.0.1 8003
+```
+
+（返回 `hello` 即 echo 成功。）
 
 ## 如何新建示例
 

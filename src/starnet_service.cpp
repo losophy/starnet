@@ -5,7 +5,33 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "lua-starnet.h"
+
+//解析 UDP 二进制地址（family + port + ip，对齐 skynet gen_udp_address）→ ip 字符串 + 端口
+static void ParseUdpAddr(const string& udpAddr, string& ip, int& port) {
+    ip = "";
+    port = 0;
+    if(udpAddr.size() < 3) {
+        return;
+    }
+    int family = (uint8_t)udpAddr[0];
+    uint16_t p = 0;
+    if(family == AF_INET && udpAddr.size() >= 7) {
+        char buf[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, udpAddr.data() + 3, buf, sizeof(buf));
+        ip = buf;
+        memcpy(&p, udpAddr.data() + 1, 2);
+    }
+    else if(family == AF_INET6 && udpAddr.size() >= 19) {
+        char buf[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, udpAddr.data() + 3, buf, sizeof(buf));
+        ip = buf;
+        memcpy(&p, udpAddr.data() + 1, 2);
+    }
+    port = ntohs(p);
+}
 
 //构造函数
 Service::Service() {
@@ -175,33 +201,28 @@ void Service::OnSocketMsg(shared_ptr<SocketMsg> msg) {
         CallStarnetLua("dispatch_socket", 4);
         return;
     }
-    //套接字可读（DATA）
-    int fd = msg->fd;
-    const int BUFFSIZE = 512;
-    char buff[BUFFSIZE];
-    int len = 0;
-    do {
-        len = read(fd, buff, BUFFSIZE);
-        if(len > 0){
-            //协程化分发 socket 数据（对齐 skynet.dispatch("socket", ...)）
-            lua_pushinteger(luaState, SocketMsg::SUBTYPE::DATA);
-            lua_pushinteger(luaState, fd);
-            lua_pushlstring(luaState, buff, len);
-            lua_pushinteger(luaState, len);
-            CallStarnetLua("dispatch_socket", 4);
-        }
-    }while(len == BUFFSIZE);
-
-    if(len <= 0 && errno != EAGAIN) {
-        if(Starnet::inst->GetConn(fd)) {
-            //关闭通知（协程化分发 close）
-            lua_pushinteger(luaState, SocketMsg::SUBTYPE::CLOSE);
-            lua_pushinteger(luaState, fd);
-            lua_pushnil(luaState);
-            lua_pushinteger(luaState, -1);
-            CallStarnetLua("dispatch_socket", 4);
-            Starnet::inst->CloseConn(fd);
-        }
+    //套接字可读（DATA：socket 线程已读出数据，直接分发，对齐 skynet 引擎统一读）
+    if(msg->subtype == SocketMsg::SUBTYPE::DATA) {
+        //协程化分发 socket 数据（对齐 skynet.dispatch("socket", ...)）
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::DATA);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushlstring(luaState, msg->buff.data(), msg->buff.size());
+        lua_pushinteger(luaState, (int)msg->buff.size());
+        CallStarnetLua("dispatch_socket", 4);
+        return;
+    }
+    //UDP 数据报（报式无粘包，解析对端地址后分发，对齐 skynet.dispatch("udp", fd, msg, addr, port)）
+    if(msg->subtype == SocketMsg::SUBTYPE::UDP) {
+        string ip;
+        int port = 0;
+        ParseUdpAddr(msg->udpAddr, ip, port);
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::UDP);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushlstring(luaState, msg->buff.data(), msg->buff.size());
+        lua_pushstring(luaState, ip.c_str());
+        lua_pushinteger(luaState, port);
+        CallStarnetLua("dispatch_socket", 5);
+        return;
     }
 }
 

@@ -237,3 +237,18 @@ void Starnet::ModifyEvent(int fd, bool epollOut) {
 int Starnet::Write(int fd, shared_ptr<char> buff, size_t len) {
     return socketServer->SendBuffer(fd, buff, len);
 }
+
+//UDP：创建 socket（对齐 skynet socket_server_udp / udp_listen）
+int Starnet::Udp(uint32_t serviceId, const char* addr, int port, bool bind_) {
+    return socketServer->AddUdp(serviceId, addr, port, bind_);
+}
+
+//UDP：设置默认对端（对齐 skynet socket_server_udp_connect）
+int Starnet::SetUdpAddress(int fd, const char* addr, int port) {
+    return socketServer->SetUdpAddress(fd, addr, port);
+}
+
+//UDP：发送（对齐 skynet socket_server_udp_send）
+int Starnet::SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len) {
+    return socketServer->SendUdp(fd, addr, port, buff, len);
+}

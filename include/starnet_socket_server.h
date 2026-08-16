@@ -51,10 +51,20 @@ public:
     int SendBuffer(int fd, shared_ptr<char> buff, size_t len);
     void OnWriteable(int fd);
     void LingerClose(int fd);
+    //UDP：创建 socket（addr/port 非空则 bind，bind_=true 对齐 skynet udp_listen；addr 空则任意地址）
+    int AddUdp(uint32_t serviceId, const char* addr, int port, bool bind_);
+    //UDP：设置默认对端地址（对齐 skynet socket_server_udp_connect）
+    int SetUdpAddress(int fd, const char* addr, int port);
+    //UDP：发送（addr/port 为空用默认对端；直接 sendto，无写缓冲）
+    int SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len);
 private:
     void OnEvent(epoll_event ev);
     void OnAccept(shared_ptr<Conn> conn);
     void OnRW(shared_ptr<Conn> conn, bool r, bool w);
+    //socket 线程读数据（对齐 skynet：读是引擎操作，服务收现成数据）
+    void ReadData(shared_ptr<Conn> conn);   //TCP：循环 read 到 EAGAIN
+    void ReadUdp(shared_ptr<Conn> conn);    //UDP：循环 recvfrom 到 EAGAIN
+    void NotifyClose(shared_ptr<Conn> conn); //读 EOF/错误：通知 close + 清理
     //写缓冲内部
     void EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);
     void EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);

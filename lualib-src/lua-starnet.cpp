@@ -31,6 +31,9 @@ void LuaAPI::Register(lua_State *luaState) {
         { "Listen", Listen },
         { "CloseConn", CloseConn },
         { "Write", Write },
+        { "Udp", Udp },
+        { "SetUdpAddress", SetUdpAddress },
+        { "SendUdp", SendUdp },
 
         { "name", Name },
         { "localname", LocalName },
@@ -243,6 +246,56 @@ int LuaAPI::Write(lua_State *luaState){
     //处理（走SocketIO引擎写缓冲）
     int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr, std::default_delete<char[]>()), len);
     //返回值
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//UDP：创建 socket（对齐 skynet c.udp / c.udp_connect / c.udp_listen）
+//参数：addr(string), port(int), bind(bool)；返回 fd（-1 失败）
+int LuaAPI::Udp(lua_State *luaState){
+    if(lua_isstring(luaState, 1) == 0 || lua_isinteger(luaState, 2) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    const char* addr = lua_tostring(luaState, 1);
+    int port = (int)lua_tointeger(luaState, 2);
+    bool bind_ = lua_toboolean(luaState, 3);
+    Service* srv = GetCurrentService(luaState);
+    int fd = Starnet::inst->Udp(srv ? srv->id : 0, addr, port, bind_);
+    lua_pushinteger(luaState, fd);
+    return 1;
+}
+
+//UDP：设置默认对端地址（对齐 skynet c.udp_connect）
+//参数：fd(int), addr(string), port(int)；返回 0 成功 / -1 失败
+int LuaAPI::SetUdpAddress(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0 || lua_isstring(luaState, 2) == 0 || lua_isinteger(luaState, 3) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int fd = (int)lua_tointeger(luaState, 1);
+    const char* addr = lua_tostring(luaState, 2);
+    int port = (int)lua_tointeger(luaState, 3);
+    int r = Starnet::inst->SetUdpAddress(fd, addr, port);
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//UDP：发送（对齐 skynet c.send_udp）
+//参数：fd(int), addr(string 可空), port(int 可空), msg(string)；返回实际发送字节数（-1 失败）
+int LuaAPI::SendUdp(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0 || lua_isstring(luaState, 4) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int fd = (int)lua_tointeger(luaState, 1);
+    const char* addr = lua_isstring(luaState, 2) ? lua_tostring(luaState, 2) : NULL;
+    int port = lua_isinteger(luaState, 3) ? (int)lua_tointeger(luaState, 3) : 0;
+    size_t len = 0;
+    const char* buff = lua_tolstring(luaState, 4, &len);
+    char* newstr = new char[len];
+    memcpy(newstr, buff, len);
+    int r = Starnet::inst->SendUdp(fd, addr, port, shared_ptr<char>(newstr, std::default_delete<char[]>()), len);
     lua_pushinteger(luaState, r);
     return 1;
 }

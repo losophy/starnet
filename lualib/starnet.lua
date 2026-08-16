@@ -41,6 +41,7 @@ local PTYPE_SNAX = 11
 local SKYNET_SOCKET_TYPE_DATA = 1
 local SKYNET_SOCKET_TYPE_CLOSE = 3
 local SKYNET_SOCKET_TYPE_ACCEPT = 4
+local SKYNET_SOCKET_TYPE_UDP = 6
 
 local starnet = {}
 
@@ -86,6 +87,7 @@ starnet.register_protocol({ name = "lua", id = PTYPE_LUA, pack = pack_string, un
 starnet.register_protocol({ name = "socket", id = PTYPE_SOCKET, pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "accept", pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "close", pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "udp", pack = pack_string, unpack = unpack_string })
 
 --协程池
 local coroutine_pool = {}
@@ -220,7 +222,7 @@ local function dispatch_in_coroutine(f, ...)
     suspend(co, coroutine_resume(co, ...))
 end
 
-function starnet.dispatch_socket(subtype, a, b, c)
+function starnet.dispatch_socket(subtype, a, b, c, d)
     if subtype == SKYNET_SOCKET_TYPE_ACCEPT then
         local p = proto["accept"]
         if p and p.dispatch then
@@ -249,6 +251,12 @@ function starnet.dispatch_socket(subtype, a, b, c)
                     break
                 end
             end
+        end
+    elseif subtype == SKYNET_SOCKET_TYPE_UDP then
+        --UDP 数据报：报式无粘包，直接分发（对齐 skynet dispatch("udp", fd, msg, addr, port)）
+        local p = proto["udp"]
+        if p and p.dispatch then
+            dispatch_in_coroutine(p.dispatch, a, b, c, d)  -- func(fd, msg, addr, port)
         end
     end
 end
@@ -326,6 +334,28 @@ end
 --网络封包：加 2 字节大端长度头（对齐 skynet netpack.pack）
 function starnet.pack(msg)
     return netpack.pack(msg)
+end
+
+--UDP 监听：绑定 addr:port 收包（对齐 skynet.udp，即 udp_listen）
+function starnet.udp(addr, port)
+    return c.udp(addr, port, true)
+end
+
+--UDP 连接：创建并设置默认对端（对齐 skynet.udp_connect，后续 send_udp 可不带地址）
+function starnet.udp_connect(addr, port)
+    local fd = c.udp(addr, port, false)
+    if fd >= 0 then
+        c.udp_connect(fd, addr, port)
+    end
+    return fd
+end
+
+--UDP 发送：addr 为空用默认对端（对齐 skynet.send_udp）
+function starnet.send_udp(fd, msg, addr, port)
+    if addr == nil then
+        return c.send_udp(fd, nil, 0, msg)
+    end
+    return c.send_udp(fd, addr, port or 0, msg)
 end
 
 --写日志（对齐 skynet.log：走统一日志器，时间戳 + 落盘/stderr）

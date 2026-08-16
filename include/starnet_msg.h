@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <stdint.h>
 using namespace std; 
 
 //消息基类
@@ -37,10 +38,14 @@ class SocketMsg : public BaseMsg {
 public:
     enum SUBTYPE {          //socket 子类型（对齐 skynet socket_server.h）
         DATA = 1,           // SKYNET_SOCKET_TYPE_DATA（原始字节流，Lua 侧 netpack 解析）
+        CONNECT = 2,        // SKYNET_SOCKET_TYPE_CONNECT（主动连接结果）
         CLOSE = 3,          // SKYNET_SOCKET_TYPE_CLOSE
         ACCEPT = 4,         // SKYNET_SOCKET_TYPE_ACCEPT
+        UDP = 6,            // SKYNET_SOCKET_TYPE_UDP（UDP 数据报，报式无粘包）
     };
     int subtype;            //socket 子类型（SUBTYPE）
     int fd;                 //连接 fd
     int listenFd;           //ACCEPT 时监听的 fd
+    string buff;            //DATA/UDP 数据（socket 线程已读出，worker 直接用）
+    string udpAddr;         //UDP 对端地址（二进制打包：1 字节 family + 2 字节端口 + 4/16 字节 IP，对齐 skynet gen_udp_address）
 };
