@@ -25,13 +25,24 @@ void StarnetStart::SetWorkerNum(int num) {
 
 //开启worker线程
 void StarnetStart::StartWorker() {
+    //weight 调度表（对齐 skynet_start.c 的硬编码 weight[]：前32个线程，超出取 0）
+    static int weight[] = {
+        -1, -1, -1, -1, 0, 0, 0, 0,
+        1, 1, 1, 1, 1, 1, 1, 1,
+        2, 2, 2, 2, 2, 2, 2, 2,
+        3, 3, 3, 3, 3, 3, 3, 3, };
     for (int i = 0; i < workerNum; i++) {
         starnet_log("start worker thread:%d", i);
         //创建线程对象
         Worker* worker = new Worker();
         worker->start = this;
         worker->id = i;
-        worker->eachNum = 2 << i;
+        if(i < (int)(sizeof(weight)/sizeof(weight[0]))) {
+            worker->weight = weight[i];
+        }
+        else {
+            worker->weight = 0;
+        }
         //每 worker 一个监视器（对齐 skynet monitor）
         worker->monitor = new StarnetMonitor();
         monitors.push_back(worker->monitor);

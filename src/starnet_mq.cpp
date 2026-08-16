@@ -32,6 +32,16 @@ shared_ptr<BaseMsg> StarnetMQ::Pop() {
         if (!msgQueue.empty()) { 
             msg =  msgQueue.front();
             msgQueue.pop();
+            //overload 检测（对齐 skynet_mq_pop：剩余长度超阈值则记录，阈值指数倍增）
+            int length = (int)msgQueue.size();
+            while(length > overloadThreshold) {
+                overload = length;
+                overloadThreshold *= 2;
+            }
+        }
+        else {
+            //队列空：重置阈值（对齐 skynet）
+            overloadThreshold = MQ_OVERLOAD;
         }
     }
     pthread_spin_unlock(&queueLock);
@@ -47,6 +57,29 @@ bool StarnetMQ::Empty() {
     }
     pthread_spin_unlock(&queueLock);
     return empty;
+}
+
+//读取并清零 overload 告警值（对齐 skynet_mq_overload）
+int StarnetMQ::Overload() {
+    int o;
+    pthread_spin_lock(&queueLock);
+    {
+        o = overload;
+        overload = 0;
+    }
+    pthread_spin_unlock(&queueLock);
+    return o;
+}
+
+//当前队列消息数（对齐 skynet_mq_length）
+int StarnetMQ::Length() {
+    int len;
+    pthread_spin_lock(&queueLock);
+    {
+        len = (int)msgQueue.size();
+    }
+    pthread_spin_unlock(&queueLock);
+    return len;
 }
 
 void StarnetMQ::SetInGlobal(bool isIn) {

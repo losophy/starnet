@@ -35,7 +35,13 @@ void Worker::operator()() {
             if(monitor) {
                 starnet_monitor_trigger(monitor, 0, srv->id, 0);
             }
-            srv->ProcessMsgs(eachNum);
+            //weight 调度（对齐 skynet_server.c dispatch：weight<0 每轮 1 条；
+            //>=0 每轮处理 队列长度>>weight 条，避免独占、实现加权公平）
+            int n = 1;
+            if(weight >= 0) {
+                n = srv->mq.Length() >> weight;
+            }
+            srv->ProcessMsgs(n);
             //处理完检查（对齐 skynet_monitor_check）
             if(monitor) {
                 starnet_monitor_check(monitor);

@@ -19,6 +19,11 @@ Service::~Service(){
 bool Service::ProcessMsg() {
     shared_ptr<BaseMsg> msg = mq.Pop();
     if(msg) {
+        //overload 告警（对齐 skynet_server.c：队列曾超阈值则打日志）
+        int overload = mq.Overload();
+        if(overload) {
+            starnet_error("error: May overload, message queue length = %d", overload);
+        }
         OnMsg(msg);
         return true;
     }

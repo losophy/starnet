@@ -9,7 +9,8 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | starnet 模块 | 对应 skynet 模块 | 备注 |
 |---|---|---|
 | `starnet_service.cpp` | `skynet_server.c` / `skynet_context` | 服务创建、消息分发（按类型） |
-| `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列（极简版） |
+| `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列 + `MQ_OVERLOAD` 告警（指数退避阈值） |
+| `StarnetStart::StartWorker` 的 weight 表 + `Worker::weight` | `skynet_start.c` weight[] + `skynet_context_message_dispatch` | weight 加权调度：`<0` 每轮 1 条，`>=0` 每轮 `队列长度>>weight` 条 |
 | `starnet_start.cpp/h`（`StarnetStart` 线程池+休眠唤醒）+ `starnet_worker.cpp` | `skynet_start.c` | 线程池管理、worker 线程 |
 | `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
@@ -97,7 +98,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **配置系统** | `skynet_env.c` | ✅ 已补：`starnet_env.cpp/h`（`getenv/setenv`，config 全部顶层键导入 env） | env 用 C++ `unordered_map`+rwlock 实现（**不照搬 Lua 表**）：starnet 为 C++ 单体、env 读多写少、避免额外 `lua_State` 与 `skynet_getenv` 返回指针跨调用失效的坑；语义等价；未补 skynet 内置 env 项（`mem_limit` 等） |
 | **监视器** | `skynet_monitor.c` | ✅ 已补：`starnet_monitor.cpp/h`（每 worker 一个 monitor，处理消息前 trigger / 批后 check；monitor 线程每 5 秒检查，卡死打 `starnet_error` 告警） | 无 Lua `endless` 调试接口（告警为 C 侧输出，对齐 skynet 默认行为） |
 | **内存管理** | `malloc_hook.c` / `mem_info.c` | ✅ 已补：`starnet_mem.cpp/h`（进程 RSS 报告，对齐 `mem_info.c`） | 决策：内存统计用「进程 RSS」，不做全局 `operator new` 重载（详见下方说明） |
-| **队列 overload / 权重调度** | `skynet_mq.c` | globalQueue 为普通 `queue` + spinlock | 无 `MQ_OVERLOAD` 告警、无 weight 加权调度 |
+| **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量） |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | 服务退出时队列消息直接丢 | 服务退出清理不安全 |
 
 > **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：
@@ -169,7 +170,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P1（灵魂）** | 2. Lua 协程 + Session RPC 层（`skynet.call/response/wakeup`） | P0 |
 | **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
-| **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）；队列 overload 与 weight 调度 | 无 |
+| **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
 | **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
 
