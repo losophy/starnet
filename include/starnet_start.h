@@ -2,6 +2,7 @@
 #include <thread>
 #include <vector>
 #include <pthread.h>
+#include "starnet_monitor.h"
 
 using namespace std;
 
@@ -37,6 +38,9 @@ private:
     thread* socketThread;
     //Timer线程（对齐 skynet THREAD_TIMER）
     thread* timerThread;
+    //监视器线程（对齐 skynet monitor：检测 worker 卡死）
+    thread* monitorThread;
+    vector<StarnetMonitor*> monitors;   //每 worker 一个监视器（worker 处理消息前后 trigger/check）
     //休眠和唤醒
     pthread_mutex_t sleepMtx;
     pthread_cond_t sleepCond;
@@ -48,4 +52,6 @@ private:
     void StartSocket();
     //开启Timer线程
     void StartTimer();
+    //开启监视器线程
+    void StartMonitor();
 };

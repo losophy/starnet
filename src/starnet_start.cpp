@@ -32,6 +32,9 @@ void StarnetStart::StartWorker() {
         worker->start = this;
         worker->id = i;
         worker->eachNum = 2 << i;
+        //每 worker 一个监视器（对齐 skynet monitor）
+        worker->monitor = new StarnetMonitor();
+        monitors.push_back(worker->monitor);
         //创建线程
         thread* wt = new thread(*worker);
         //添加到列表
@@ -66,6 +69,11 @@ void StarnetStart::StartTimer() {
     timerThread = new thread(timerLoop);
 }
 
+//开启监视器线程（对齐 skynet_start.c 的 monitor 线程：每 5 秒检查 worker 卡死）
+void StarnetStart::StartMonitor() {
+    monitorThread = new thread(starnet_monitor_run, monitors.data(), (int)monitors.size(), 5);
+}
+
 //开启系统线程池
 void StarnetStart::Start() {
     //开启Worker
@@ -74,6 +82,8 @@ void StarnetStart::Start() {
     StartSocket();
     //开启Timer线程（对齐 skynet THREAD_TIMER）
     StartTimer();
+    //开启监视器线程（对齐 skynet monitor）
+    StartMonitor();
 }
 
 //等待

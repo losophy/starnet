@@ -31,7 +31,15 @@ void Worker::operator()() {
             start->WorkerWait();
         }
         else{
+            //监视器：开始处理前记录（对齐 skynet_monitor_trigger）
+            if(monitor) {
+                starnet_monitor_trigger(monitor, 0, srv->id, 0);
+            }
             srv->ProcessMsgs(eachNum);
+            //处理完检查（对齐 skynet_monitor_check）
+            if(monitor) {
+                starnet_monitor_check(monitor);
+            }
             CheckAndPutGlobal(srv);
         }
     }
