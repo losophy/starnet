@@ -1,5 +1,6 @@
 #include "starnet.h"
 #include "starnet_start.h"
+#include "starnet_timer.h"
 #include <iostream>
 #include <assert.h>
 
@@ -28,6 +29,8 @@ void Starnet::Start(StarnetConfig& cfg) {
     //锁
     pthread_rwlock_init(&servicesLock, NULL);
     starnet_globalmq_init();
+    //初始化定时器（对齐 skynet_start 的 skynet_timer_init）
+    starnet_timer_init();
     //开启系统线程池
     start = new StarnetStart();
     start->SetWorkerNum(config.thread);

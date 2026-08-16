@@ -35,6 +35,8 @@ private:
     SocketServer* socketServer;
     SocketBridge* socketBridge;
     thread* socketThread;
+    //Timer线程（对齐 skynet THREAD_TIMER）
+    thread* timerThread;
     //休眠和唤醒
     pthread_mutex_t sleepMtx;
     pthread_cond_t sleepCond;
@@ -44,4 +46,6 @@ private:
     void StartWorker();
     //开启Socket线程
     void StartSocket();
+    //开启Timer线程
+    void StartTimer();
 };

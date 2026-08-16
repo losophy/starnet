@@ -43,6 +43,7 @@ private:
     void OnServiceMsg(shared_ptr<ServiceMsg> msg);
     void OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg);
     void OnRWMsg(shared_ptr<SocketRWMsg> msg);
+    void OnTimeout(shared_ptr<TimerMsg> msg);
     void OnSocketData(int fd, const char* buff, int len);
     void OnSocketClose(int fd);
 };

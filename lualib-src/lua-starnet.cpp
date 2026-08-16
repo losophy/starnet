@@ -1,6 +1,7 @@
 #include "lua-starnet.h"
 #include "stdint.h"
 #include "starnet.h"
+#include "starnet_timer.h"
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
@@ -16,6 +17,8 @@ void LuaAPI::Register(lua_State *luaState) {
         { "Listen", Listen },
         { "CloseConn", CloseConn },
         { "Write", Write },
+
+        { "timeout", Timeout },
         { NULL, NULL }
     };
 
@@ -162,6 +165,35 @@ int LuaAPI::Write(lua_State *luaState){
     memcpy(newstr, buff, len);
     //处理（走SocketIO引擎写缓冲）
     int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr), len);
+    //返回值
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//注册定时器
+int LuaAPI::Timeout(lua_State *luaState){
+    //参数个数
+    int num = lua_gettop(luaState);
+    //参数1：目标服务Id
+    if(lua_isinteger(luaState, 1) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int id = lua_tointeger(luaState, 1);
+    //参数2：延时（centisecond，1/100秒）
+    if(lua_isinteger(luaState, 2) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int time = lua_tointeger(luaState, 2);
+    //参数3：session
+    if(lua_isinteger(luaState, 3) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int session = lua_tointeger(luaState, 3);
+    //处理（对齐 skynet_timeout）
+    int r = starnet_timeout(id, time, session);
     //返回值
     lua_pushinteger(luaState, r);
     return 1;

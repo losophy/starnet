@@ -45,7 +45,7 @@ cd build
 ## 示例说明
 
 ### main
-启动入口示例。`OnInit` 中调用 `starnet.NewService("chat")` 拉起聊天服务，演示如何从 Lua 里创建其他服务。
+启动入口示例。`OnInit` 中调用 `starnet.NewService("chat")` 拉起聊天服务，并注册每秒心跳定时器演示 `starnet.timeout`（每 100 centisecond 触发 `OnTimeout`，session 自增续订）。
 
 ### chat
 Socket 聊天室示例：
@@ -78,5 +78,6 @@ nc 127.0.0.1 8002
    - `OnAcceptMsg(listenfd, clientfd)`：监听端口有新连接
    - `OnSocketData(fd, buff)`：连接收到数据
    - `OnSocketClose(fd)`：连接关闭
+   - `OnTimeout(session)`：定时器到期（`starnet.timeout(服务Id, 延时centisecond, session)` 注册，见 `main/init.lua`）
    - `OnExit()`：服务退出前
 3. 在启动链上拉起它：`main/init.lua` 里 `starnet.NewService("<名字>")`，或把 config 的 `start` 字段改成你的服务名（`starnet_main.cpp` 按 `cfg.start` 启动）

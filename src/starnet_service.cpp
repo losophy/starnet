@@ -166,6 +166,17 @@ void Service::OnRWMsg(shared_ptr<SocketRWMsg> msg) {
 
 
 
+//定时器到期
+void Service::OnTimeout(shared_ptr<TimerMsg> msg) {
+    //调用Lua函数
+    lua_getglobal(luaState, "OnTimeout"); 
+    lua_pushinteger(luaState, msg->session); 
+    int isok = lua_pcall(luaState, 1, 0, 0);
+    if(isok != 0){ //成功返回值为0，否则代表失败.
+         cout << "call lua OnTimeout fail " << lua_tostring(luaState, -1) << endl;
+    }
+}
+
 //收到消息时触发
 void Service::OnMsg(shared_ptr<BaseMsg> msg) {
     //SERVICE
@@ -182,6 +193,11 @@ void Service::OnMsg(shared_ptr<BaseMsg> msg) {
     else if(msg->type == BaseMsg::TYPE::SOCKET_RW) {
         auto m = dynamic_pointer_cast<SocketRWMsg>(msg);
         OnRWMsg(m);
+    }
+    //TIMER
+    else if(msg->type == BaseMsg::TYPE::TIMER) {
+        auto m = dynamic_pointer_cast<TimerMsg>(msg);
+        OnTimeout(m);
     }
 }
 

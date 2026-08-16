@@ -2,8 +2,10 @@
 #include "starnet_worker.h"
 #include "starnet_socket_server.h"
 #include "starnet_socket.h"
+#include "starnet_timer.h"
 #include "starnet_mq.h"
 #include <iostream>
+#include <unistd.h>
 
 using namespace std;
 
@@ -50,12 +52,27 @@ void StarnetStart::StartSocket() {
     socketThread = new thread(*socketServer);
 }
 
+//Timer线程驱动（对齐 skynet_start.c thread_timer：每2.5ms驱动一次）
+static void timerLoop() {
+    while(true) {
+        starnet_updatetime();
+        usleep(2500);
+    }
+}
+
+//开启Timer线程
+void StarnetStart::StartTimer() {
+    timerThread = new thread(timerLoop);
+}
+
 //开启系统线程池
 void StarnetStart::Start() {
     //开启Worker
     StartWorker();
     //开启Socket线程
     StartSocket();
+    //开启Timer线程（对齐 skynet THREAD_TIMER）
+    StartTimer();
 }
 
 //等待

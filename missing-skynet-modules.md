@@ -15,6 +15,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
 | `examples/main、chat、ping` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
+| `starnet_timer.cpp/h`（时间轮 + timer 线程，每 2.5ms 驱动） | `skynet_timer.c` | 定时器系统（极简版） |
 
 > 命名约定：所有模块统一使用 `starnet_` 前缀命名文件（对齐 skynet 目录结构，便于对照移植），如 `starnet_server.cpp`、`starnet_timer.cpp`。当前旧文件已全部重命名，`starnet.h` / `starnet.cpp` 对应主类 `Starnet`。
 
@@ -26,8 +27,8 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 - **skynet 对应**：`skynet_timer.c` / `skynet_timer.h`
 - **功能**：时间轮定时器（`TIME_NEAR` 近层 + 4 级远层）、独立 timer 线程驱动、`skynet_timeout()` 向目标服务投递 `PTYPE_RESPONSE` 超时消息。
-- **starnet 现状**：完全没有。Lua 层无 `timeout / sleep / yield`，服务无法做定时任务、心跳、超时轮询。
-- **影响**：任何需要延时的业务都无法实现。
+- **starnet 现状**：✅ 已补 `starnet_timer.cpp/h`——4 级时间轮照搬 skynet、独立 timer 线程（`StarnetStart::StartTimer`，每 2.5ms 驱动 `starnet_updatetime`）、`starnet_timeout(handle, time, session)` 到期投递 `TimerMsg`（`source=0`）到目标服务；Lua 侧 `starnet.timeout(id, ti, session)` 显式传 session，到期回调 `OnTimeout(session)`。
+- **待补**：Lua 协程模型下的 `skynet.sleep / skynet.fork / skynet.timeout(回调)`（需先补协程，见第 2 节）。
 
 ### 2. Lua 协程 + Session RPC 模型
 
