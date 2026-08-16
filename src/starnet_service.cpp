@@ -70,16 +70,8 @@ void Service::OnSocketData(int fd, const char* buff, int len) {
     }
 }
 
-//套接字可写
-void Service::OnSocketWritable(int fd) {
-    cout << "OnSocketWritable " << fd << endl;
-    auto w = writers[fd];
-    w->OnWriteable();
-}
-
 //关闭连接前
 void Service::OnSocketClose(int fd) {
-    writers.erase(fd);
     cout << "OnSocketClose " << fd << endl;
 
     //调用Lua函数
@@ -106,9 +98,6 @@ void Service::OnServiceMsg(shared_ptr<ServiceMsg> msg) {
 //新连接
 void Service::OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg) {
     cout << "OnAcceptMsg " << msg->clientFd << endl;
-    auto w = make_shared<ConnWriter>();
-    w->fd = msg->clientFd;
-    writers.emplace(msg->clientFd, w);
 
     //调用Lua函数
     lua_getglobal(luaState, "OnAcceptMsg"); 
@@ -120,7 +109,7 @@ void Service::OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg) {
     }
 }
 
-//套接字可读可写
+//套接字可读
 void Service::OnRWMsg(shared_ptr<SocketRWMsg> msg) {
     int fd = msg->fd;
     //可读
@@ -140,12 +129,6 @@ void Service::OnRWMsg(shared_ptr<SocketRWMsg> msg) {
                 OnSocketClose(fd);
                 Starnet::inst->CloseConn(fd);
             }
-        }
-    }
-    //可写（注意没有else）
-    if(msg->isWrite) {
-        if(Starnet::inst->GetConn(fd)){
-            OnSocketWritable(fd);
         }
     }
 }

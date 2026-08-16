@@ -31,6 +31,8 @@ public:
     //网络连接操作接口（用原始read write）
     int Listen(uint32_t port, uint32_t serviceId);
     void CloseConn(uint32_t fd);
+    //发送缓冲（转发到SocketIO引擎写缓冲）
+    int Write(int fd, shared_ptr<char> buff, size_t len);
     //对外Event接口
     void ModifyEvent(int fd, bool epollOut);
 private:

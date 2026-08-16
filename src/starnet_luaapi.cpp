@@ -157,8 +157,11 @@ int LuaAPI::Write(lua_State *luaState){
     }
     size_t len = 0;
     const char *buff = lua_tolstring(luaState, 2, &len);
-    //处理
-    int r = write(fd, buff, len);
+    //拷贝缓冲（Lua字符串内存可能被GC回收）
+    char *newstr = new char[len];
+    memcpy(newstr, buff, len);
+    //处理（走SocketIO引擎写缓冲）
+    int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr), len);
     //返回值
     lua_pushinteger(luaState, r);
     return 1;

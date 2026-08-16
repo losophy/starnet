@@ -2,6 +2,7 @@
 #include <iostream>
 #include <unistd.h>
 #include <assert.h>
+#include <errno.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -16,6 +17,7 @@ void SocketServer::Init() {
     assert(epollFd > 0);
     //锁
     pthread_rwlock_init(&connsLock, NULL);
+    pthread_spin_init(&writeBuffersLock, 0);
     listener = NULL;
 }
 
@@ -56,13 +58,19 @@ void SocketServer::OnAccept(shared_ptr<Conn> conn) {
 //可读可写
 void SocketServer::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
     cout << "OnRW fd:" << conn->fd << endl;
-    auto msg = make_shared<SocketRWMsg>();
-    msg->type = BaseMsg::TYPE::SOCKET_RW;
-    msg->fd = conn->fd;
-    msg->isRead = r;
-    msg->isWrite = w;
-    if(listener) {
-        listener->OnRWMsg(msg, conn->serviceId);
+    //可写：由引擎内部刷写缓冲（对齐 socket_server.c，不通知服务）
+    if(w) {
+        OnWriteable(conn->fd);
+    }
+    //可读：通知服务（读逻辑暂留业务层）
+    if(r) {
+        auto msg = make_shared<SocketRWMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET_RW;
+        msg->fd = conn->fd;
+        msg->isRead = true;
+        if(listener) {
+            listener->OnRWMsg(msg, conn->serviceId);
+        }
     }
 }
 
@@ -146,6 +154,12 @@ bool SocketServer::RemoveConn(int fd) {
         result = conns.erase(fd);
     }
     pthread_rwlock_unlock(&connsLock);
+    //清理写缓冲
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        writeBuffers.erase(fd);
+    }
+    pthread_spin_unlock(&writeBuffersLock);
     return result == 1;
 }
 
@@ -181,4 +195,182 @@ void SocketServer::ModifyEvent(int fd, bool epollOut) {
         ev.events = EPOLLIN | EPOLLET ;
     }
     epoll_ctl(epollFd, EPOLL_CTL_MOD, fd, &ev);
+}
+
+//（写缓冲）无待写数据，先尝试直写
+void SocketServer::EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len) {
+    char* s = buff.get();
+    //谨记：>=0, -1&&EAGAIN, -1&&EINTR, -1&&其他
+    int n = write(fd, s, len);
+    if(n < 0 && errno == EINTR) { }; //仅提醒你要注意
+    //情况1-1：全部写完
+    if(n >= 0 && n == (int)len) {
+        return;
+    }
+    //情况1-2：写一部分（或没写入）
+    if( (n > 0 && n < (int)len) || (n < 0 && errno == EAGAIN) ) {
+        auto obj = make_shared<WriteObject>();
+        obj->start = n;
+        obj->buff = buff;
+        obj->len = len;
+        wb.objs.push_back(obj);
+        //请求EPOLLOUT（引擎内部）
+        ModifyEvent(fd, true);
+        return;
+    }
+    //情况1-3：真的发生错误
+    cout << "EntireWriteWhenEmpty write error " << endl;
+}
+
+//（写缓冲）有待写数据，添加到末尾
+void SocketServer::EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len) {
+    auto obj = make_shared<WriteObject>();
+    obj->start = 0;
+    obj->buff = buff;
+    obj->len = len;
+    wb.objs.push_back(obj);
+}
+
+//返回值:是否完整的写入了一条
+bool SocketServer::WriteFrontObj(int fd, ConnWriteBuffer& wb) {
+    //没待写数据
+    if(wb.objs.empty()) {
+        return false;
+    }
+    //获取第一条
+    auto obj = wb.objs.front();
+
+    //谨记：>=0, -1&&EAGAIN, -1&&EINTR, -1&&其他
+    char* s = obj->buff.get() + obj->start;
+    int len = obj->len - obj->start;
+    int n = write(fd, s, len);
+    if(n < 0 && errno == EINTR) { }; //仅提醒你要注意
+    //情况1-1：全部写完
+    if(n >= 0 && n == len) {
+        wb.objs.pop_front(); //出队
+        return true;
+    }
+    //情况1-2：写一部分（或没写入）
+    if( (n > 0 && n < len) || (n < 0 && errno == EAGAIN) ) {
+        obj->start += n;
+        return false;
+    }
+    //情况1-3：真的发生错误
+    cout << "WriteFrontObj write error " << endl;
+    return false;
+}
+
+//（写缓冲）发送缓冲（worker线程调用）
+int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len) {
+    if(GetConn(fd) == NULL) {
+        return -1;
+    }
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        ConnWriteBuffer& wb = writeBuffers[fd];
+        pthread_spin_lock(&wb.lock);
+        {
+            if(wb.isClosing) {
+                pthread_spin_unlock(&wb.lock);
+                pthread_spin_unlock(&writeBuffersLock);
+                return -1;
+            }
+            //情况1：没有待写入数据，先尝试写入
+            if(wb.objs.empty()) {
+                EntireWriteWhenEmpty(fd, wb, buff, len);
+            }
+            //情况2：有待写入数据，添加到末尾
+            else {
+                EntireWriteWhenNotEmpty(wb, buff, len);
+            }
+        }
+        pthread_spin_unlock(&wb.lock);
+    }
+    pthread_spin_unlock(&writeBuffersLock);
+    return 0;
+}
+
+//（写缓冲）EPOLLOUT 触发时刷写（socket线程调用）
+void SocketServer::OnWriteable(int fd) {
+    auto conn = GetConn(fd);
+    if(conn == NULL){ //连接已关闭
+        return;
+    }
+
+    bool needNotify = false;
+    bool emptied = false;
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        auto iter = writeBuffers.find(fd);
+        if(iter != writeBuffers.end()) {
+            ConnWriteBuffer& wb = iter->second;
+            pthread_spin_lock(&wb.lock);
+            {
+                while(WriteFrontObj(fd, wb)) {
+                    //循环
+                }
+                if(wb.objs.empty()) {
+                    emptied = true;
+                    needNotify = wb.isClosing;
+                }
+            }
+            pthread_spin_unlock(&wb.lock);
+        }
+    }
+    pthread_spin_unlock(&writeBuffersLock);
+
+    //解锁后再操作（避免持锁调用）
+    if(needNotify) {
+        //通知服务，此处并不是通用做法
+        //让read产生 Bad file descriptor报错
+        cout << "linger close conn" << endl;
+        shutdown(fd, SHUT_RD);
+        auto msg = make_shared<SocketRWMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET_RW;
+        msg->fd = conn->fd;
+        msg->isRead = true;
+        if(listener) {
+            listener->OnRWMsg(msg, conn->serviceId);
+        }
+    }
+    else if(emptied) {
+        //刷完关闭EPOLLOUT
+        ModifyEvent(fd, false);
+    }
+    //否则还有数据待写，保持EPOLLOUT继续触发
+}
+
+//（写缓冲）全部发完再关闭
+void SocketServer::LingerClose(int fd) {
+    bool empty = false;
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        auto iter = writeBuffers.find(fd);
+        if(iter == writeBuffers.end()) {
+            pthread_spin_unlock(&writeBuffersLock);
+            RemoveConn(fd);
+            close(fd);
+            RemoveEvent(fd);
+            return;
+        }
+        ConnWriteBuffer& wb = iter->second;
+        pthread_spin_lock(&wb.lock);
+        {
+            if(wb.isClosing) {
+                pthread_spin_unlock(&wb.lock);
+                pthread_spin_unlock(&writeBuffersLock);
+                return;
+            }
+            wb.isClosing = true;
+            empty = wb.objs.empty();
+        }
+        pthread_spin_unlock(&wb.lock);
+    }
+    pthread_spin_unlock(&writeBuffersLock);
+    //解锁后再关闭，避免锁内调用RemoveConn（其内部会加writeBuffersLock）
+    if(empty) {
+        RemoveConn(fd);
+        close(fd);
+        RemoveEvent(fd);
+    }
 }

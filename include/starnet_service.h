@@ -1,7 +1,6 @@
 #pragma once
 #include <thread>
 #include "starnet_msg.h"
-#include "starnet_connwriter.h"
 #include "starnet_mq.h"
 #include <unordered_map>
 
@@ -25,8 +24,6 @@ public:
     bool isExiting = false;
     //二级消息队列（对齐 skynet_mq.c 的 message_queue）
     StarnetMQ mq;
-    //业务逻辑（仅测试使用）
-    unordered_map<int, shared_ptr<ConnWriter>> writers;
 public:       
     //构造和析构函数
     Service();
@@ -47,6 +44,5 @@ private:
     void OnAcceptMsg(shared_ptr<SocketAcceptMsg> msg);
     void OnRWMsg(shared_ptr<SocketRWMsg> msg);
     void OnSocketData(int fd, const char* buff, int len);
-    void OnSocketWritable(int fd);
     void OnSocketClose(int fd);
 };

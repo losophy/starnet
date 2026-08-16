@@ -175,3 +175,8 @@ void Starnet::CloseConn(uint32_t fd) {
 void Starnet::ModifyEvent(int fd, bool epollOut) {
     socketServer->ModifyEvent(fd, epollOut);
 }
+
+//发送缓冲（转发到SocketIO引擎写缓冲）
+int Starnet::Write(int fd, shared_ptr<char> buff, size_t len) {
+    return socketServer->SendBuffer(fd, buff, len);
+}
