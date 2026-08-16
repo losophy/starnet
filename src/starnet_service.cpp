@@ -43,16 +43,47 @@ void Service::OnInit() {
     luaL_openlibs(luaState); 
     //注册Starnet系统API
     LuaAPI::Register(luaState);
-    //执行Lua文件
-    string filename = "../service/" + *type + "/init.lua";
-    int isok = luaL_dofile(luaState, filename.data());
-    if(isok == 1){ //成功返回值为0，失败则为1.
-         cout << "run lua fail:" << lua_tostring(luaState, -1) << endl;
+    //执行Lua文件（按模板顺序查找，对齐 skynet loader.lua 的 LUA_SERVICE 拆分）
+    string serviceTemplate = Starnet::inst->GetService();
+    bool loaded = false;
+    size_t pos = 0;
+    while(pos != string::npos) {
+        size_t semi = serviceTemplate.find(';', pos);
+        string pattern = serviceTemplate.substr(pos, semi == string::npos ? string::npos : semi - pos);
+        pos = (semi == string::npos) ? string::npos : semi + 1;
+        //?替换为服务名
+        string filename = "";
+        size_t q = 0;
+        while(q != string::npos) {
+            size_t found = pattern.find('?', q);
+            if(found == string::npos) {
+                filename += pattern.substr(q);
+                break;
+            }
+            filename += pattern.substr(q, found - q) + *type;
+            q = found + 1;
+        }
+        int status = luaL_loadfile(luaState, filename.data());
+        if(status == 0) {
+            loaded = true;
+            int err = lua_pcall(luaState, 0, 0, 0);
+            if(err != 0) {
+                cout << "run lua fail:" << lua_tostring(luaState, -1) << endl;
+            }
+            break;
+        }
+        else {
+            //加载失败（文件不存在或语法错误），继续尝试下一个模板
+            lua_pop(luaState, 1);
+        }
+    }
+    if(!loaded) {
+        cout << "service not found: " << *type << endl;
     }
     //调用Lua函数
     lua_getglobal(luaState, "OnInit"); 
     lua_pushinteger(luaState, id); 
-    isok = lua_pcall(luaState, 1, 0, 0);
+    int isok = lua_pcall(luaState, 1, 0, 0);
     if(isok != 0){ //成功返回值为0，否则代表失败.
          cout << "call lua OnInit fail " << lua_tostring(luaState, -1) << endl;
     }

@@ -13,9 +13,16 @@ StarnetStart::StarnetStart() {
     pthread_mutex_init(&sleepMtx, NULL);
 }
 
+//设置worker线程数（对齐 skynet config.thread）
+void StarnetStart::SetWorkerNum(int num) {
+    if(num > 0) {
+        workerNum = num;
+    }
+}
+
 //开启worker线程
 void StarnetStart::StartWorker() {
-    for (int i = 0; i < WORKER_NUM; i++) {
+    for (int i = 0; i < workerNum; i++) {
         cout << "start worker thread:" << i << endl;
         //创建线程对象
         Worker* worker = new Worker();
@@ -73,7 +80,7 @@ void StarnetStart::CheckAndWeakUp(){
     if(sleepCount == 0) {
         return;
     }
-    if( WORKER_NUM - sleepCount <= starnet_globalmq_length() ) {
+    if( workerNum - sleepCount <= starnet_globalmq_length() ) {
         cout << "weakup" << endl; 
         pthread_cond_signal(&sleepCond);
     }

@@ -14,6 +14,8 @@ class StarnetStart {
 public:
     //构造函数：初始化休眠唤醒锁
     StarnetStart();
+    //设置worker线程数（对齐 skynet config.thread）
+    void SetWorkerNum(int num);
     //开启系统线程池
     void Start();
     //等待运行
@@ -26,8 +28,8 @@ public:
     SocketServer* GetSocketServer();
 private:
     //工作线程
-    int WORKER_NUM = 3;              //工作线程数（配置）
-    vector<Worker*> workers;         //worker对象
+    int workerNum = 3;           //worker线程数（对齐 skynet config.thread）
+    vector<Worker*> workers;     //worker对象
     vector<thread*> workerThreads;   //线程
     //Socket线程
     SocketServer* socketServer;

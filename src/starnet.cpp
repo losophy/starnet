@@ -18,9 +18,11 @@ Starnet::Starnet(){
     inst = this;
 }
 
-//开启系统
-void Starnet::Start() {
+//开启系统（对齐 skynet_start(&config)）
+void Starnet::Start(StarnetConfig& cfg) {
     cout << "Hello Starnet" << endl;
+    //保存配置
+    config = cfg;
     //忽略SIGPIPE信号
     signal(SIGPIPE, SIG_IGN);
     //锁
@@ -28,8 +30,14 @@ void Starnet::Start() {
     starnet_globalmq_init();
     //开启系统线程池
     start = new StarnetStart();
+    start->SetWorkerNum(config.thread);
     start->Start();
     socketServer = start->GetSocketServer();
+}
+
+//获取服务搜索模板
+string Starnet::GetService() {
+    return config.service;
 }
 
 //等待

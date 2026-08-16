@@ -1,5 +1,6 @@
 #pragma once
 #include "starnet_service.h"
+#include "starnet_config.h"
 #include <unordered_map>
 #include "starnet_socket_server.h"
 #include "starnet_conn.h"
@@ -13,10 +14,12 @@ public:
 public:
     //构造函数
     Starnet();
-    //初始化并开始
-    void Start();
+    //初始化并开始（对齐 skynet_start(&config)）
+    void Start(StarnetConfig& cfg);
     //等待运行
     void Wait();
+    //获取服务搜索模板（对齐 skynet 的 LUA_SERVICE）
+    string GetService();
     //增删服务
     uint32_t NewService(shared_ptr<string> type);
     void KillService(uint32_t id);     //仅限服务自己调用
@@ -38,6 +41,8 @@ public:
 private:
     //线程池管理（对齐 skynet_start.c）
     StarnetStart* start;
+    //启动配置
+    StarnetConfig config;
     //SocketIO引擎（事件接口使用，创建归start）
     SocketServer* socketServer;
     //服务列表

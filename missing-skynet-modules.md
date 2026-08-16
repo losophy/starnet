@@ -1,6 +1,6 @@
 # Starnet 缺失的 Skynet 重要代码分析
 
-> 本文档基于对 `starnet`（`src/`、`include/`、`service/` 全部源码）与 `D:\服务器引擎制作资料\skynet` 核心模块的逐文件对比，整理出 starnet 相对 skynet 缺失的重要代码模块，并按补全优先级给出路线图。
+> 本文档基于对 `starnet`（`src/`、`include/`、`lualib-src/`、`examples/`、`service/` 全部源码）与 `D:\服务器引擎制作资料\skynet` 核心模块的逐文件对比，整理出 starnet 相对 skynet 缺失的重要代码模块，并按补全优先级给出路线图。
 
 ## 现状概述
 
@@ -14,7 +14,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
-| `service/main、chat、ping` | `examples/` + `service/` | 示例服务 |
+| `examples/main、chat、ping` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
 
 > 命名约定：所有模块统一使用 `starnet_` 前缀命名文件（对齐 skynet 目录结构，便于对照移植），如 `starnet_server.cpp`、`starnet_timer.cpp`。当前旧文件已全部重命名，`starnet.h` / `starnet.cpp` 对应主类 `Starnet`。
 

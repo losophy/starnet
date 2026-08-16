@@ -1,4 +1,5 @@
 #include "starnet.h"
+#include "starnet_config.h"
 #include <iostream>
 #include <unistd.h>
 
@@ -25,11 +26,13 @@ int TestEcho() {
     return 0;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    //加载配置（对齐 skynet：starnet [config.lua]，无参数用默认）
+    StarnetConfig cfg = StarnetConfig::Load(argc > 1 ? argv[1] : NULL);
     new Starnet();
-    Starnet::inst->Start();
-    //启动main服务
-    auto t = make_shared<string>("main");
+    Starnet::inst->Start(cfg);
+    //启动start服务（对齐 skynet config.start）
+    auto t = make_shared<string>(cfg.start);
     Starnet::inst->NewService(t);
     //wait
     Starnet::inst->Wait();
