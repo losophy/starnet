@@ -89,13 +89,18 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 | 缺失模块 | skynet 对应文件 | starnet 现状 | 影响 |
 |---|---|---|---|
-| **C 模块加载** | `skynet_module.c` / `skynet_module.h` | 只能跑 Lua 服务 | 无法动态加载 C 服务（`create/init/release/signal`） |
+| **C 模块加载** | `skynet_module.c` / `skynet_module.h` | 服务 = Lua 脚本路径（`luaservice` 模板 `?`→type 找 `init.lua`），C++ 宿主唯一，无 C 原生服务 | 不实施（见下表后说明） |
 | **日志系统** | `skynet_error.c` / `skynet_log.c` | 全部 `cout` 打印 | 无统一日志（时间戳、源、落盘、轮转） |
 | **配置系统** | `skynet_env.c` | 无 config 解析、无 `getenv/setenv` | 端口/路径/线程数不可配置 |
 | **监视器** | `skynet_monitor.c` | 无死循环/卡死检测 | 服务死循环无告警（`skynet.endless`） |
 | **内存管理** | `malloc_hook.c` / `mem_info.c` | 无内存统计（曾用 `char load[999999]` 占位，已移除） | 无内存统计、无泄漏排查工具 |
 | **队列 overload / 权重调度** | `skynet_mq.c` | globalQueue 为普通 `queue` + spinlock | 无 `MQ_OVERLOAD` 告警、无 weight 加权调度 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | 服务退出时队列消息直接丢 | 服务退出清理不安全 |
+
+> **C 模块加载（`skynet_module`）为何不实施**：skynet 用 `dlopen` 按名加载 `.so`，是因为其「C 内核 + 可插拔 C 服务」架构——C 语言没有运行时按名分派机制，只能交给操作系统加载器的符号表。starnet 是 C++ 单体：
+> 1. **服务已是运行时加载**——`Service::OnInit` 按 `luaservice` 模板把 `?` 替换为类型名找 `<type>/init.lua`（等价于「模块查询 + snlua」），加新服务零重编译；
+> 2. **若未来需要 C++ 原生服务**，用静态注册表（`unordered_map<string, StarnetModule>`，含 `create/init/signal/release` 函数指针，对齐 skynet 函数表语义）即可，类型安全、无 `extern "C"` 符号修饰、无 Windows/Linux dlopen 差异；
+> 3. **dlopen 的收益（第三方独立 `.so` 分发）在自研单体场景不存在**，而跨平台加载、ABI 脆弱等成本真实存在。
 
 ---
 
@@ -156,7 +161,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志 / 配置 / 内存统计；队列 overload 与 weight 调度 | 无 |
-| **P5（扩展）** | 6. C 模块加载（`skynet_module`） | P3 |
+| **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
 | **P6（高级）** | 7. 监视器、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、服务退出时清空未处理消息、`KillService` 与 worker 的并发安全。
