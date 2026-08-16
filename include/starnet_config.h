@@ -13,6 +13,8 @@ struct StarnetConfig {
     int thread;
     //Lua模块搜索路径（lualib 宿主库，对齐 skynet 的 lua_path）
     string luaPath;
+    //日志输出文件（对齐 skynet 的 logger）；空串表示写 stderr
+    string logger;
 
     //默认配置（对齐 skynet optstring 的默认值精神）
     static StarnetConfig Default();

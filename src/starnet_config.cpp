@@ -1,4 +1,5 @@
 #include "starnet_config.h"
+#include "starnet_logger.h"
 #include <iostream>
 
 extern "C" {
@@ -14,6 +15,7 @@ StarnetConfig StarnetConfig::Default() {
     cfg.start = "main";
     cfg.thread = 3;
     cfg.luaPath = "../lualib/?.lua";
+    cfg.logger = "";  //默认 stderr
     return cfg;
 }
 
@@ -29,13 +31,13 @@ StarnetConfig StarnetConfig::Load(const char* filename) {
     luaL_openlibs(L);
     int status = luaL_loadfile(L, filename);
     if(status != 0) {
-        cout << "config load fail: " << lua_tostring(L, -1) << endl;
+        starnet_error("config load fail: %s", lua_tostring(L, -1));
         lua_close(L);
         return cfg;
     }
     status = lua_pcall(L, 0, 1, 0);
     if(status != 0) {
-        cout << "config run fail: " << lua_tostring(L, -1) << endl;
+        starnet_error("config run fail: %s", lua_tostring(L, -1));
         lua_close(L);
         return cfg;
     }
@@ -62,6 +64,12 @@ StarnetConfig StarnetConfig::Load(const char* filename) {
         lua_getfield(L, -1, "luaPath");
         if(lua_isstring(L, -1)) {
             cfg.luaPath = lua_tostring(L, -1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, -1, "logger");
+        if(lua_isstring(L, -1)) {
+            cfg.logger = lua_tostring(L, -1);
         }
         lua_pop(L, 1);
     }

@@ -4,6 +4,7 @@
 #include "starnet.h"
 #include "starnet_service.h"
 #include "starnet_timer.h"
+#include "starnet_logger.h"
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
@@ -33,6 +34,8 @@ void LuaAPI::Register(lua_State *luaState) {
 
         { "name", Name },
         { "localname", LocalName },
+
+        { "log", Log },
 
         { "timeout", Timeout },
         { NULL, NULL }
@@ -84,24 +87,24 @@ int LuaAPI::Send(lua_State *luaState) {
     //参数总数
     int num = lua_gettop(luaState);
     if(num != 3) {
-        cout << "Send fail, num err" << endl;
+        starnet_error("Send fail, num err");
         return 0;
     }
     //参数1:我是谁
     if(lua_isinteger(luaState, 1) == 0) {
-        cout << "Send fail, arg1 err" << endl;
+        starnet_error("Send fail, arg1 err");
         return 0;
     }
     int source = lua_tointeger(luaState, 1);
     //参数2:发送给谁
     if(lua_isinteger(luaState, 2) == 0) {
-        cout << "Send fail, arg2 err" << endl;
+        starnet_error("Send fail, arg2 err");
         return 0;
     }
     int toId = lua_tointeger(luaState, 2);
     //参数3:发送的内容
     if(lua_isstring(luaState, 3) == 0){
-        cout << "Send fail, arg3 err" << endl;
+        starnet_error("Send fail, arg3 err");
         return 0;
     }
     size_t len = 0;
@@ -122,25 +125,25 @@ int LuaAPI::Send(lua_State *luaState) {
 int LuaAPI::SendSession(lua_State *luaState) {
     //参数1：发送给谁
     if(lua_isinteger(luaState, 1) == 0) {
-        cout << "SendSession fail, arg1 err" << endl;
+        starnet_error("SendSession fail, arg1 err");
         return 0;
     }
     int toId = lua_tointeger(luaState, 1);
     //参数2：消息类型
     if(lua_isinteger(luaState, 2) == 0) {
-        cout << "SendSession fail, arg2 err" << endl;
+        starnet_error("SendSession fail, arg2 err");
         return 0;
     }
     int type = lua_tointeger(luaState, 2);
     //参数3：session
     if(lua_isinteger(luaState, 3) == 0) {
-        cout << "SendSession fail, arg3 err" << endl;
+        starnet_error("SendSession fail, arg3 err");
         return 0;
     }
     int session = lua_tointeger(luaState, 3);
     //参数4：发送的内容
     if(lua_isstring(luaState, 4) == 0){
-        cout << "SendSession fail, arg4 err" << endl;
+        starnet_error("SendSession fail, arg4 err");
         return 0;
     }
     size_t len = 0;
@@ -274,6 +277,28 @@ int LuaAPI::LocalName(lua_State *luaState){
     uint32_t handle = Starnet::inst->FindServiceByName(name);
     lua_pushinteger(luaState, handle);
     return 1;
+}
+
+//写日志（对齐 skynet.log：走统一日志器，时间戳 + 级别 + 落盘/stderr）
+//参数：多个参数以空格拼接后写入
+int LuaAPI::Log(lua_State *luaState){
+    int n = lua_gettop(luaState);
+    string text;
+    for(int i = 1; i <= n; i++) {
+        if(i > 1) {
+            text += " ";
+        }
+        size_t len = 0;
+        const char* s = lua_tolstring(luaState, i, &len);
+        if(s) {
+            text.append(s, len);
+        }
+        else {
+            text += lua_typename(luaState, lua_type(luaState, i));
+        }
+    }
+    starnet_log("%s", text.c_str());
+    return 0;
 }
 
 //注册定时器

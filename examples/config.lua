@@ -9,4 +9,6 @@ return {
     thread = 3,
     --Lua模块搜索路径（lualib 宿主库，对齐 skynet lua_path）
     luaPath = "../lualib/?.lua",
+    --日志输出文件（对齐 skynet logger；不配置或空串则写 stderr）
+    logger = "",
 }

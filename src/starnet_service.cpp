@@ -1,5 +1,6 @@
 #include "starnet_service.h"
 #include "starnet.h"
+#include "starnet_logger.h"
 #include <iostream>
 #include <unistd.h>
 #include <errno.h>
@@ -55,14 +56,14 @@ void Service::CallStarnetLua(const char* func, int nargs) {
     lua_pop(luaState, 1);
     int isok = lua_pcall(luaState, nargs, 0, 0);
     if(isok != 0){
-        cout << "call lua " << func << " fail " << lua_tostring(luaState, -1) << endl;
+        starnet_error("call lua %s fail: %s", func, lua_tostring(luaState, -1));
         lua_pop(luaState, 1);
     }
 }
 
 //创建服务后触发
 void Service::OnInit() {
-    cout << "[" << id <<"] OnInit"  << endl;
+    starnet_log("[%u] OnInit", id);
     //新建Lua虚拟机
     luaState = luaL_newstate();
     luaL_openlibs(luaState); 
@@ -82,7 +83,7 @@ void Service::OnInit() {
     lua_getglobal(luaState, "require");
     lua_pushliteral(luaState, "starnet");
     if(lua_pcall(luaState, 1, 1, 0) != 0) {
-        cout << "require starnet fail " << lua_tostring(luaState, -1) << endl;
+        starnet_error("require starnet fail: %s", lua_tostring(luaState, -1));
         lua_pop(luaState, 1);
     }
     else {
@@ -116,7 +117,7 @@ void Service::OnInit() {
             loaded = true;
             int err = lua_pcall(luaState, 0, 0, 0);
             if(err != 0) {
-                cout << "run lua fail:" << lua_tostring(luaState, -1) << endl;
+                starnet_error("run lua fail: %s", lua_tostring(luaState, -1));
             }
             break;
         }
@@ -126,7 +127,7 @@ void Service::OnInit() {
         }
     }
     if(!loaded) {
-        cout << "service not found: " << *type << endl;
+        starnet_error("service not found: %s", type->c_str());
     }
 }
 
@@ -150,7 +151,7 @@ void Service::OnServiceMsg(shared_ptr<ServiceMsg> msg) {
 void Service::OnSocketMsg(shared_ptr<SocketMsg> msg) {
     //新连接
     if(msg->subtype == SocketMsg::SUBTYPE::ACCEPT) {
-        cout << "OnAcceptMsg " << msg->fd << endl;
+        starnet_log("[%u] OnAccept fd:%d", id, msg->fd);
         //协程化分发 accept（对齐 skynet.dispatch("accept", ...)）
         lua_pushinteger(luaState, SocketMsg::SUBTYPE::ACCEPT);
         lua_pushinteger(luaState, msg->fd);
@@ -216,14 +217,13 @@ void Service::OnMsg(shared_ptr<BaseMsg> msg) {
 
 //退出服务时触发
 void Service::OnExit() {
-    cout << "[" << id <<"] OnExit"  << endl;
+    starnet_log("[%u] OnExit", id);
     //调用Lua函数（新风格脚本无全局 OnExit，需判空）
     lua_getglobal(luaState, "OnExit"); 
     if(lua_isfunction(luaState, -1)) {
         int isok = lua_pcall(luaState, 0, 0, 0);
         if(isok != 0){ //成功返回值为0，否则代表失败.
-             cout << "call lua OnExit fail " << 
-                lua_tostring(luaState, -1) << endl;
+             starnet_error("call lua OnExit fail: %s", lua_tostring(luaState, -1));
         }
     }
     else {

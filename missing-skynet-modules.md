@@ -90,7 +90,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | 缺失模块 | skynet 对应文件 | starnet 现状 | 影响 |
 |---|---|---|---|
 | **C 模块加载** | `skynet_module.c` / `skynet_module.h` | 服务 = Lua 脚本路径（`luaservice` 模板 `?`→type 找 `init.lua`），C++ 宿主唯一，无 C 原生服务 | 不实施（见下表后说明） |
-| **日志系统** | `skynet_error.c` / `skynet_log.c` | 全部 `cout` 打印 | 无统一日志（时间戳、源、落盘、轮转） |
+| **日志系统** | `skynet_error.c` / `skynet_log.c` | ✅ 已补：`starnet_logger.cpp/h`（时间戳 + 级别 + 文件/stderr、线程安全、`config.logger` 指定文件、Lua 侧 `starnet.log`）；框架 `cout` 已替换 | 无 skynet 的 logger 独立服务（日志作为服务可按需替换） |
 | **配置系统** | `skynet_env.c` | 无 config 解析、无 `getenv/setenv` | 端口/路径/线程数不可配置 |
 | **监视器** | `skynet_monitor.c` | 无死循环/卡死检测 | 服务死循环无告警（`skynet.endless`） |
 | **内存管理** | `malloc_hook.c` / `mem_info.c` | 无内存统计（曾用 `char load[999999]` 占位，已移除） | 无内存统计、无泄漏排查工具 |
@@ -160,7 +160,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P1（灵魂）** | 2. Lua 协程 + Session RPC 层（`skynet.call/response/wakeup`） | P0 |
 | **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
-| **P4（工程化）** | 5. 日志 / 配置 / 内存统计；队列 overload 与 weight 调度 | 无 |
+| **P4（工程化）** | 5. 日志（✅ 已完成）/ 配置（部分：luaservice/start/thread/luaPath/logger 已支持，`getenv/setenv` 未做）/ 内存统计；队列 overload 与 weight 调度 | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
 | **P6（高级）** | 7. 监视器、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
 

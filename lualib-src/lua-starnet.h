@@ -28,5 +28,8 @@ public:
     static int Name(lua_State *luaState);
     static int LocalName(lua_State *luaState);
 
+    //写日志（对齐 skynet.log）
+    static int Log(lua_State *luaState);
+
     static int Timeout(lua_State *luaState);
 };

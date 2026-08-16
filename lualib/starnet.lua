@@ -319,6 +319,11 @@ function starnet.pack(msg)
     return netpack.pack(msg)
 end
 
+--写日志（对齐 skynet.log：走统一日志器，时间戳 + 落盘/stderr）
+function starnet.log(...)
+    c.log(...)
+end
+
 --RPC请求：分配 session 发送并挂起等待响应（对齐 skynet.call）
 local function yield_call(service, session)
     session_id_coroutine[session] = running_thread

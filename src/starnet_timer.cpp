@@ -1,7 +1,7 @@
 #include "starnet_timer.h"
 #include "starnet.h"
-#include "starnet_msg.h"
-#include <time.h>
+#include "starnet_logger.h"
+#include <iostream>
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -226,7 +226,7 @@ void
 starnet_updatetime(void) {
     uint64_t cp = gettime();
     if(cp < TI->current_point) {
-        cout << "time diff error" << endl;
+        starnet_error("time diff error, cp=%llu current_point=%llu", cp, TI->current_point);
         TI->current_point = cp;
     } else if (cp != TI->current_point) {
         uint32_t diff = (uint32_t)(cp - TI->current_point);

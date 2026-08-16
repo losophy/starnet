@@ -67,6 +67,7 @@ end)
 | API | 说明 | 对齐 skynet |
 |---|---|---|
 | `starnet.self()` | 当前服务 id | `skynet.self()` |
+| `starnet.log(...)` | 写日志（统一日志器：时间戳 + 级别 + `config.logger` 文件/stderr） | `skynet.log` |
 | `starnet.name(name, handle)` / `starnet.localname(name)` | 注册本地名（`.` 前缀）/ 按名查 id | `skynet.name` / `skynet.localname` |
 | `starnet.NewService(type)` | 新建服务 | `skynet.newservice` |
 | `starnet.KillService(id)` / `starnet.exit()` | 退出服务 | `skynet.kill` |

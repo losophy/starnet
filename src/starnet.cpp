@@ -2,6 +2,7 @@
 #include "starnet_start.h"
 #include "starnet_timer.h"
 #include "starnet_handle.h"
+#include "starnet_logger.h"
 #include <iostream>
 #include <assert.h>
 
@@ -22,7 +23,11 @@ Starnet::Starnet(){
 
 //开启系统（对齐 skynet_start(&config)）
 void Starnet::Start(StarnetConfig& cfg) {
-    cout << "Hello Starnet" << endl;
+    //初始化日志系统（对齐 skynet：logger 服务由 config.logger 指定输出文件）
+    if(!starnet_logger_init(cfg.logger.empty() ? NULL : cfg.logger.c_str())) {
+        starnet_error("open logger file fail: %s", cfg.logger.c_str());
+    }
+    starnet_log("Hello Starnet");
     //保存配置
     config = cfg;
     //忽略SIGPIPE信号
@@ -123,7 +128,7 @@ uint32_t Starnet::FindServiceByName(const char* name) {
 void Starnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){
     shared_ptr<Service> toSrv = GetService(toId);
     if(!toSrv){
-        cout << "Send fail, toSrv not exist toId:" << toId << endl;
+        starnet_error("Send fail, toSrv not exist toId:%u", toId);
         return;
     }
     toSrv->mq.Push(msg);
@@ -163,7 +168,7 @@ int Starnet::Listen(uint32_t port, uint32_t serviceId) {
     //创建Socket
     int listenFd = socket(AF_INET, SOCK_STREAM, 0);
     if(listenFd <= 0){
-        cout << "listen error, listenFd <= 0" << endl;
+        starnet_error("listen error, listenFd <= 0");
         return -1;
     }
     fcntl(listenFd, F_SETFL, O_NONBLOCK);
@@ -175,7 +180,7 @@ int Starnet::Listen(uint32_t port, uint32_t serviceId) {
     //bind
     int r = bind(listenFd, (struct sockaddr*)&addr, sizeof(addr));
     if( r == -1){
-        cout << "listen error, bind fail" << endl;
+        starnet_error("listen error, bind fail, errno=%d", errno);
         return -1;
     }
     //listen
