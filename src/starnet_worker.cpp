@@ -1,6 +1,7 @@
 #include <iostream>
 #include <unistd.h>
 #include "starnet_worker.h"
+#include "starnet_start.h"
 #include "starnet_service.h"
 using namespace std;
 
@@ -22,7 +23,7 @@ void Worker::operator()() {
     while(true) {
         shared_ptr<Service> srv = starnet_globalmq_pop();
         if(!srv){
-            Starnet::inst->WorkerWait();
+            start->WorkerWait();
         }
         else{
             srv->ProcessMsgs(eachNum);

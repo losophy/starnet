@@ -1,13 +1,13 @@
 #pragma once
 #include <thread> 
-#include "starnet.h"
 #include "starnet_service.h"
-class Starnet;
+class StarnetStart;
 
 using namespace std;
 
 class Worker { 
 public:
+    StarnetStart* start;   //线程池引用
     int id;             //编号
     int eachNum;        //每次处理多少条消息
     void operator()();  //线程函数

@@ -10,7 +10,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 |---|---|---|
 | `starnet_service.cpp` | `skynet_server.c` / `skynet_context` | 服务创建、消息分发（按类型） |
 | `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列（极简版） |
-| `starnet_worker.cpp` | `skynet_start.c` 工作线程 | 从全局队列取服务处理消息 |
+| `starnet_start.cpp/h`（`StarnetStart` 线程池+休眠唤醒）+ `starnet_worker.cpp` | `skynet_start.c` | 线程池管理、worker 线程 |
 | `starnet_socketworker.cpp`（epoll） | `skynet_socket.c` + `socket_server.c` | 网络线程（极简版） |
 | `starnet_connwriter.cpp` | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `starnet_luaapi.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |

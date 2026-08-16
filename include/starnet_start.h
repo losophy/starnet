@@ -1,0 +1,43 @@
+#pragma once
+#include <thread>
+#include <vector>
+#include <pthread.h>
+
+using namespace std;
+
+class Worker;
+class SocketWorker;
+
+//系统线程池管理（对齐 skynet_start.c：thread_worker/thread_socket + monitor 休眠唤醒）
+class StarnetStart {
+public:
+    //构造函数：初始化休眠唤醒锁
+    StarnetStart();
+    //开启系统线程池
+    void Start();
+    //等待运行
+    void Wait();
+    //让工作线程等待（仅工作线程调用）
+    void WorkerWait();
+    //检查并唤醒线程
+    void CheckAndWeakUp();
+    //获取Socket线程对象
+    SocketWorker* GetSocketWorker();
+private:
+    //工作线程
+    int WORKER_NUM = 3;              //工作线程数（配置）
+    vector<Worker*> workers;         //worker对象
+    vector<thread*> workerThreads;   //线程
+    //Socket线程
+    SocketWorker* socketWorker;
+    thread* socketThread;
+    //休眠和唤醒
+    pthread_mutex_t sleepMtx;
+    pthread_cond_t sleepCond;
+    int sleepCount = 0;        //休眠工作线程数
+private:
+    //开启工作线程
+    void StartWorker();
+    //开启Socket线程
+    void StartSocket();
+};
