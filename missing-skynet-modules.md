@@ -98,7 +98,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **配置系统** | `skynet_env.c` | ✅ 已补：`starnet_env.cpp/h`（`getenv/setenv`，config 全部顶层键导入 env） | env 用 C++ `unordered_map`+rwlock 实现（**不照搬 Lua 表**）：starnet 为 C++ 单体、env 读多写少、避免额外 `lua_State` 与 `skynet_getenv` 返回指针跨调用失效的坑；语义等价；未补 skynet 内置 env 项（`mem_limit` 等） |
 | **监视器** | `skynet_monitor.c` | ✅ 已补：`starnet_monitor.cpp/h`（每 worker 一个 monitor，处理消息前 trigger / 批后 check；monitor 线程每 5 秒检查，卡死打 `starnet_error` 告警） | 无 Lua `endless` 调试接口（告警为 C 侧输出，对齐 skynet 默认行为） |
 | **内存管理** | `malloc_hook.c` / `mem_info.c` | ✅ 已补：`starnet_mem.cpp/h`（进程 RSS 报告，对齐 `mem_info.c`） | 决策：内存统计用「进程 RSS」，不做全局 `operator new` 重载（详见下方说明） |
-| **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量） |
+| **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量）；示例 `thread=8`（对齐 skynet 标准），避免 thread≤4 时全部 weight=-1（每轮 1 条）的低效 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | ✅ 已补：服务退出丢弃残留消息时给发送方回 `PTYPE_ERROR`（对齐 `drop_message`）；Lua 侧 `call` 收到 ERROR 报错退出 | 决策：SocketMsg 不加 source 字段（详见下方说明）；队列内存随 Service 生命周期（`shared_ptr` 自管） |
 
 > **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：

@@ -5,8 +5,8 @@ return {
     luaservice = "../service/?/init.lua;../examples/?/init.lua",
     --启动服务名（对齐 skynet start）
     start = "main",
-    --worker线程数（对齐 skynet thread）
-    thread = 3,
+    --worker线程数（对齐 skynet thread；取 8 以覆盖 weight 表前 4 个 -1 与 5~8 个 0）
+    thread = 8,
     --Lua模块搜索路径（lualib 宿主库，对齐 skynet lua_path）
     luaPath = "../lualib/?.lua",
     --日志输出文件（对齐 skynet logger；不配置或空串则写 stderr）

@@ -38,7 +38,7 @@ cd build
 |---|---|---|
 | `luaservice` | 服务搜索模板（`;` 分隔，`?` 为服务名占位） | `../service/?/init.lua;../examples/?/init.lua` |
 | `start` | 启动服务名 | `main` |
-| `thread` | worker 线程数 | `3` |
+| `thread` | worker 线程数 | `8`（对齐 skynet 标准；覆盖 weight 表，避免全部 -1） |
 | `luaPath` | Lua 模块搜索路径（`lualib/` 宿主库，对齐 skynet `lua_path`） | `../lualib/?.lua` |
 
 参考 `examples/config.lua`。

@@ -10,6 +10,9 @@ using namespace std;
 //服务退出丢弃未处理消息时，给发送方回 PTYPE_ERROR（保留原 session），
 //让等待 call 的协程报错退出（Lua 侧 starnet.lua 处理 PTYPE_ERROR）
 static void dropMessage(shared_ptr<BaseMsg> msg) {
+    //类型不变量：当前 BaseMsg 仅有 SocketMsg / ServiceMsg 两类，
+    //type 字段与派生类型一一对应（SOCKET 之外的均为 ServiceMsg）。
+    //新增第三种派生类时须同步此处判断。
     //SocketMsg 无发送方语义（网络消息 source 恒为 0），跳过（对齐 skynet 实际行为）
     if(msg->type == BaseMsg::TYPE::SOCKET) {
         return;
