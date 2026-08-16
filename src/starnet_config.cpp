@@ -12,7 +12,7 @@ extern "C" {
 //默认配置
 StarnetConfig StarnetConfig::Default() {
     StarnetConfig cfg;
-    cfg.service = "../service/?/init.lua;../examples/?/init.lua";
+    cfg.service = "../service/?/init.lua;../examples/?.lua";
     cfg.start = "main";
     cfg.thread = 3;
     cfg.luaPath = "../lualib/?.lua";

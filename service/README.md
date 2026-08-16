@@ -6,4 +6,4 @@
 
 以后框架自身的系统服务（logger、console、gate 等）应放在此目录。
 
-服务加载顺序由 config 的 `luaservice` 模板决定：先查 `../service/<type>/init.lua`，再查 `../examples/<type>/init.lua`（见 `starnet_config.cpp`）。
+服务加载顺序由 config 的 `luaservice` 模板决定：先查 `../service/<type>/init.lua`（官方目录，目录式），再查 `../examples/<type>.lua`（示例单文件，见 `starnet_config.cpp`）。

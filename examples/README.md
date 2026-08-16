@@ -2,14 +2,14 @@
 
 演示/示例服务目录（对齐 skynet 的 `examples/`）。与 `../service/`（框架官方服务）区分：
 - `service/`：框架自带的系统服务，当前为空
-- `examples/`：演示如何写服务，当前有 `main`、`chat`、`ping`、`db`、`udp`
+- `examples/`：演示如何写服务，当前有 `main.lua`、`chat.lua`、`ping.lua`、`db.lua`、`udp.lua`（**单文件**，每服务一个 `*.lua`）
 
 ## 服务搜索顺序
 
 框架按配置中的 `luaservice` 模板顺序查找服务脚本（对齐 skynet 的 `LUA_SERVICE`，见 `src/starnet_config.cpp`）：
 
-1. `../service/<类型>/init.lua`（官方优先）
-2. `../examples/<类型>/init.lua`（示例兜底）
+1. `../service/<类型>/init.lua`（官方目录，目录式，优先）
+2. `../examples/<类型>.lua`（示例兜底，单文件）
 
 模板语法：`;` 分隔多个路径，`?` 是服务名占位。可用 `config.lua` 的 `luaservice` 字段覆盖。
 
@@ -36,7 +36,7 @@ cd build
 
 | 字段 | 含义 | 默认值 |
 |---|---|---|
-| `luaservice` | 服务搜索模板（`;` 分隔，`?` 为服务名占位） | `../service/?/init.lua;../examples/?/init.lua` |
+| `luaservice` | 服务搜索模板（`;` 分隔，`?` 为服务名占位） | `../service/?/init.lua;../examples/?.lua` |
 | `start` | 启动服务名 | `main` |
 | `thread` | worker 线程数 | `8`（对齐 skynet 标准；覆盖 weight 表，避免全部 -1） |
 | `luaPath` | Lua 模块搜索路径（`lualib/` 宿主库，对齐 skynet `lua_path`） | `../lualib/?.lua` |
@@ -142,6 +142,6 @@ echo hello | nc -u 127.0.0.1 8003
 
 ## 如何新建示例
 
-1. 新建目录 `examples/<名字>/init.lua`
+1. 新建单文件 `examples/<名字>.lua`
 2. 用宿主库编写：`starnet.start` + `starnet.dispatch`（见上方 API 表）
-3. 在启动链上拉起它：`main/init.lua` 里 `starnet.NewService("<名字>")`，或把 config 的 `start` 字段改成你的服务名（`starnet_main.cpp` 按 `cfg.start` 启动）
+3. 在启动链上拉起它：`main.lua` 里 `starnet.NewService("<名字>")`，或把 config 的 `start` 字段改成你的服务名（`starnet_main.cpp` 按 `cfg.start` 启动）
