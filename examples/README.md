@@ -67,10 +67,11 @@ end)
 | API | 说明 | 对齐 skynet |
 |---|---|---|
 | `starnet.self()` | 当前服务 id | `skynet.self()` |
+| `starnet.name(name, handle)` / `starnet.localname(name)` | 注册本地名（`.` 前缀）/ 按名查 id | `skynet.name` / `skynet.localname` |
 | `starnet.NewService(type)` | 新建服务 | `skynet.newservice` |
 | `starnet.KillService(id)` / `starnet.exit()` | 退出服务 | `skynet.kill` |
-| `starnet.send(addr, "lua", msg)` | 发送消息（无需响应） | `skynet.send` |
-| `starnet.call(addr, "lua", msg)` | RPC 同步调用（挂起协程等响应） | `skynet.call` |
+| `starnet.send(addr, "lua", msg)` | 发送消息（无需响应）；addr 支持 `.名字` | `skynet.send` |
+| `starnet.call(addr, "lua", msg)` | RPC 同步调用（挂起协程等响应）；addr 支持 `.名字` | `skynet.call` |
 | `starnet.ret(msg)` | 当前请求回包（会话式） | `skynet.ret` |
 | `starnet.response()` | 返回一次性异步回包函数 | `skynet.response` |
 | `starnet.sleep(ti)` | 协程挂起 ti centisecond | `skynet.sleep` |

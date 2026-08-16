@@ -8,9 +8,14 @@ using namespace std;
 //那些调Starnet的通过传参数解决
 //状态是不在队列中，global=true
 void Worker::CheckAndPutGlobal(shared_ptr<Service> srv) {
-    //退出中（只能自己调退出，isExiting不会线程冲突）
-    if(srv->isExiting){ 
-        return; 
+    //退出中（跨线程标记，对齐 skynet retire：由 worker 线程在安全点执行退出清理）
+    if(srv->isExiting){
+        //只执行一次 OnExit（lua_close 归 worker 线程，避免与正在处理的 Lua 调用并发）
+        if(!srv->exited.exchange(true)) {
+            srv->OnExit();
+            srv->mq.Clear();  //丢弃残留消息
+        }
+        return;
     }
     //队列非空则重新入全局队列，否则置inGlobal=false
     srv->mq.FinishDispatch(srv);

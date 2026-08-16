@@ -31,6 +31,9 @@ void LuaAPI::Register(lua_State *luaState) {
         { "CloseConn", CloseConn },
         { "Write", Write },
 
+        { "name", Name },
+        { "localname", LocalName },
+
         { "timeout", Timeout },
         { NULL, NULL }
     };
@@ -241,6 +244,43 @@ int LuaAPI::Write(lua_State *luaState){
     int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr), len);
     //返回值
     lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//名字服务：注册本地名（对齐 skynet.name → cmd_name）
+//参数：handle, name；'.' 前缀去点（本地名）
+int LuaAPI::Name(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0 || lua_isstring(luaState, 2) == 0) {
+        lua_pushboolean(luaState, 0);
+        return 1;
+    }
+    int handle = (int)lua_tointeger(luaState, 1);
+    size_t len = 0;
+    const char *name = lua_tolstring(luaState, 2, &len);
+    if(len > 0 && name[0] == '.') {
+        ++name;
+        --len;
+    }
+    bool ok = Starnet::inst->NameService((uint32_t)handle, name);
+    lua_pushboolean(luaState, ok);
+    return 1;
+}
+
+//名字服务：按名字查 handle（对齐 skynet.localname → cmd_query）
+//参数：name；返回 handle（0=未找到）
+int LuaAPI::LocalName(lua_State *luaState){
+    if(lua_isstring(luaState, 1) == 0) {
+        lua_pushinteger(luaState, 0);
+        return 1;
+    }
+    size_t len = 0;
+    const char *name = lua_tolstring(luaState, 1, &len);
+    if(len > 0 && name[0] == '.') {
+        ++name;
+        --len;
+    }
+    uint32_t handle = Starnet::inst->FindServiceByName(name);
+    lua_pushinteger(luaState, handle);
     return 1;
 }
 

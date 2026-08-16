@@ -26,6 +26,8 @@ public:
     bool TryEnterGlobal(shared_ptr<Service> srv);
     //Worker处理完一批消息后调用：队列非空则重新入全局队列，否则置inGlobal=false
     void FinishDispatch(shared_ptr<Service> srv);
+    //清空队列（丢弃残留消息，对齐 skynet_mq 的 message_drop）
+    void Clear();
 private:
     //消息列表
     queue<shared_ptr<BaseMsg>> msgQueue;

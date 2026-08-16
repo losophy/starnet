@@ -1,6 +1,7 @@
 #include "starnet.h"
 #include "starnet_start.h"
 #include "starnet_timer.h"
+#include "starnet_handle.h"
 #include <iostream>
 #include <assert.h>
 
@@ -29,6 +30,7 @@ void Starnet::Start(StarnetConfig& cfg) {
     //锁
     pthread_rwlock_init(&servicesLock, NULL);
     starnet_globalmq_init();
+    starnet_handle_init();  //名字服务初始化（对齐 skynet_handle_init）
     //初始化定时器（对齐 skynet_start 的 skynet_timer_init）
     starnet_timer_init();
     //开启系统线程池
@@ -53,14 +55,13 @@ void Starnet::Wait() {
     start->Wait();
 }
 
-//新建服务
+//新建服务（对齐 skynet_context_new + skynet_handle_register，0 保留）
 uint32_t Starnet::NewService(shared_ptr<string> type) {
     auto srv = make_shared<Service>();
     srv->type = type;
     pthread_rwlock_wrlock(&servicesLock);
     {
-        srv->id = maxId; 
-        maxId++;
+        srv->id = ++maxId;  //id 从 1 开始（0 保留，对齐 skynet handle）
         services.emplace(srv->id, srv);
     }
     pthread_rwlock_unlock(&servicesLock);
@@ -82,24 +83,41 @@ shared_ptr<Service> Starnet::GetService(uint32_t id) {
     return srv;
 }
 
-//删除服务
-//只能service自己调自己，因为srv->OnExit、srv->isExiting不加锁
+//删除服务（异步退休，跨线程安全，对齐 skynet_handle_retire）
+//不在此处执行 OnExit/lua_close：由 worker 线程在安全点执行（见 Worker::CheckAndPutGlobal）
 void Starnet::KillService(uint32_t id) {
     shared_ptr<Service> srv = GetService(id);
     if(!srv){
         return;
     }
-    //退出前
-    srv->OnExit();
-    srv->isExiting = true;
-    //删列表
+    //摘除：不再可被按 id 寻址
     pthread_rwlock_wrlock(&servicesLock);
     {
         services.erase(id);
     }
     pthread_rwlock_unlock(&servicesLock);
+    //清名字
+    starnet_handle_removename(id);
+    //标记退出
+    srv->isExiting = true;
+    //兜底：若服务空闲（不在全局队列），重新入队确保 worker 处理退出
+    if(!srv->mq.IsInGlobal()) {
+        if(srv->mq.TryEnterGlobal(srv)) {
+            start->CheckAndWeakUp();
+        }
+    }
 }
 
+
+//名字服务：注册本地名（对齐 skynet_handle_namehandle）
+bool Starnet::NameService(uint32_t handle, const char* name) {
+    return starnet_handle_namehandle(handle, name);
+}
+
+//名字服务：按名字查 handle（0=未找到，对齐 skynet_handle_findname）
+uint32_t Starnet::FindServiceByName(const char* name) {
+    return starnet_handle_findname(name);
+}
 
 //发送消息
 void Starnet::Send(uint32_t toId, shared_ptr<BaseMsg> msg){

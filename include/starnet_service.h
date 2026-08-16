@@ -1,5 +1,6 @@
 #pragma once
 #include <thread>
+#include <atomic>
 #include "starnet_msg.h"
 #include "starnet_mq.h"
 #include <unordered_map>
@@ -20,8 +21,10 @@ public:
     uint32_t id;
     //类型
     shared_ptr<string> type;
-    // 是否正在退出
-    bool isExiting = false;
+    // 是否正在退出（跨线程读写，原子）
+    std::atomic<bool> isExiting{false};
+    //退出清理（OnExit/lua_close）是否已由 worker 执行（原子）
+    std::atomic<bool> exited{false};
     //二级消息队列（对齐 skynet_mq.c 的 message_queue）
     StarnetMQ mq;
     //RPC会话号自增（对齐 skynet_context.session，C侧 genid 分配）

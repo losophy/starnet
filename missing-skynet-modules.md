@@ -17,6 +17,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `lualib/starnet.lua` | `lualib/skynet.lua` | Lua 宿主库：协程 dispatch / session RPC / sleep/fork/timeout（核心子集） |
 | `lualib-src/lua-netpack.cpp` | `lualib-src/lua-netpack.c` | 网络封包：2 字节大端长度头 + 粘包/半包解析（`netpack.filter/pop/pack`） |
 | `starnet_msg.h` 的 `BaseMsg::TYPE` + `SocketMsg` | `skynet.h` 的 `PTYPE_*` + `socket_server.h` 的 `SKYNET_SOCKET_TYPE_*` | 协议类型体系：PTYPE 编号对齐 + socket 子类型（`starnet.PTYPE_*` 常量） |
+| `starnet_handle.cpp/h` + `Starnet` 异步退休 | `skynet_handle.c` | 服务句柄/名字服务：`name/localname`、handle 从 1 开始（0 保留）、KillService 跨线程安全（worker 线程执行退出） |
 | `examples/main、chat、ping、db` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
 | `starnet_timer.cpp/h`（时间轮 + timer 线程，每 2.5ms 驱动） | `skynet_timer.c` | 定时器系统（极简版） |
 
@@ -75,8 +76,12 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 - **skynet 对应**：`skynet_handle.c` / `skynet_handle.h`
 - **功能**：handle 分配与回收、引用计数 `grab / release`、名字服务（`skynet_handle_namehandle` / `findname`）、`HANDLE_MASK` 高位预留远程 id。
-- **starnet 现状**：`unordered_map<uint32_t, Service>` + 递增 `maxId`，无名字注册、无引用计数。
-- **影响**：无法按名字找服务，无法跨节点编址，服务释放不安全。
+- **starnet 现状**：✅ 已补——
+  - 新增 `starnet_handle.cpp/h`：名字服务（`namehandle` 注册 / `findname` 查询 / `removename` 退休清名，`unordered_map` + rwlock）、`HANDLE_MASK 0xffffff` / `HANDLE_REMOTE_SHIFT 24`（高 8 位预留 harbor，单节点 harbor=0）。
+  - `NewService` 分配 handle 从 **1** 开始（**0 保留**，对齐 skynet）。
+  - **异步退休**（跨线程安全，对齐 `skynet_handle_retire` + `grab/release`）：`KillService` 改为标记 `isExiting` + 从 services map/名字表摘除 + 兜底入全局队列；`OnExit`/`lua_close` 由 worker 线程在安全点执行（`CheckAndPutGlobal` 用 `exited` 原子标志保证只执行一次），残留消息用 `mq.Clear()` 丢弃。解决原「调用线程同步 `lua_close` 与 worker 并发」的崩溃风险。
+  - Lua 侧：`starnet.name(name, handle)` / `starnet.localname(name)`；`send/call` 地址支持 `.名字`（内部 `queryname` 解析）。
+- **未补**：跨节点编址（harbor 位实际位移，需集群支持）、`skynet_handle_grab/release` 的显式引用计数（starnet 用 `shared_ptr` 持有服务对象，语义等价）。
 
 ---
 
@@ -149,7 +154,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P0（地基）** | 1. 定时器系统（时间轮 + timer 线程） | 无 |
 | **P1（灵魂）** | 2. Lua 协程 + Session RPC 层（`skynet.call/response/wakeup`） | P0 |
 | **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
-| **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1 |
+| **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志 / 配置 / 内存统计；队列 overload 与 weight 调度 | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | P3 |
 | **P6（高级）** | 7. 监视器、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |

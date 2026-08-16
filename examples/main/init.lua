@@ -7,11 +7,15 @@ starnet.start(function()
     starnet.NewService("chat")
     local ping = starnet.NewService("ping")
     local db = starnet.NewService("db")
+    --名字服务：注册本地名（对齐 skynet.name），并用名字解析（starnet.localname）
+    starnet.name(".ping", ping)
+    starnet.name(".db", db)
+    print("[lua] main localname .ping="..tostring(starnet.localname(".ping")).." .db="..tostring(starnet.localname(".db")))
     --演示 RPC call：ping（请求-应答，参数用 string.pack 编码，对齐原示例）
-    local n1, n2 = string.unpack("i4 i4", starnet.call(ping, "lua", string.pack("i4 i4", 1, 2)))
+    local n1, n2 = string.unpack("i4 i4", starnet.call(".ping", "lua", string.pack("i4 i4", 1, 2)))
     print("[lua] main call ping result n1:"..n1.." n2:"..n2)
-    --演示 RPC call：db
-    local r = starnet.call(db, "lua", "hello")
+    --演示 RPC call：db（用名字地址）
+    local r = starnet.call(".db", "lua", "hello")
     print("[lua] main call db result:"..r)
     --演示 sleep（协程挂起 200 centisecond）
     starnet.sleep(200)

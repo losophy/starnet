@@ -99,6 +99,17 @@ void StarnetMQ::FinishDispatch(shared_ptr<Service> srv) {
     pthread_spin_unlock(&queueLock);
 }
 
+//清空队列（丢弃残留消息）
+void StarnetMQ::Clear() {
+    pthread_spin_lock(&queueLock);
+    {
+        while(!msgQueue.empty()) {
+            msgQueue.pop();
+        }
+    }
+    pthread_spin_unlock(&queueLock);
+}
+
 // ---------- 全局队列（对齐 skynet_globalmq_*） ----------
 
 static queue<shared_ptr<Service>> globalQueue;

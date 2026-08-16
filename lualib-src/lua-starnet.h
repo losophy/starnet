@@ -24,5 +24,9 @@ public:
     static int CloseConn(lua_State *luaState);
     static int Write(lua_State *luaState);
 
+    //名字服务（对齐 skynet name / localname）
+    static int Name(lua_State *luaState);
+    static int LocalName(lua_State *luaState);
+
     static int Timeout(lua_State *luaState);
 };

@@ -253,6 +253,31 @@ function starnet.exit()
     c.KillService(c.self())
 end
 
+--名字服务（对齐 skynet.name / skynet.localname）
+function starnet.name(name, handle)
+    assert(c.name(handle, name), "duplicate name: " .. tostring(name))
+end
+
+function starnet.localname(name)
+    local handle = c.localname(name)
+    if handle == 0 then
+        return nil
+    end
+    return handle
+end
+
+--地址解析：支持整数 id 或 '.名字'（对齐 skynet queryname）
+local function resolve_addr(addr)
+    if type(addr) == "string" then
+        local h = starnet.localname(addr)
+        if not h then
+            error("invalid address: " .. tostring(addr))
+        end
+        return h
+    end
+    return addr
+end
+
 --启动函数（对齐 skynet.start：主协程执行）
 function starnet.start(func)
     local co = co_create(func)
@@ -274,7 +299,7 @@ end
 function starnet.send(addr, typename, ...)
     local p = proto[typename]
     local msg = p.pack(...) or ""
-    c.send_session(addr, p.id, 0, msg)
+    c.send_session(resolve_addr(addr), p.id, 0, msg)
 end
 
 --网络封包：加 2 字节大端长度头（对齐 skynet netpack.pack）
@@ -293,6 +318,7 @@ local function yield_call(service, session)
 end
 
 function starnet.call(addr, typename, ...)
+    local addr = resolve_addr(addr)
     local p = proto[typename]
     local msg = p.pack(...) or ""
     local session = c.genid()
