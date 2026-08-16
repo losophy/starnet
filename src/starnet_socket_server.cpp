@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <arpa/inet.h>
 
 using namespace std;
 
@@ -109,17 +110,68 @@ void SocketServer::OnAccept(shared_ptr<Conn> conn) {
 //可读可写（socket 线程执行）
 void SocketServer::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
     starnet_log("OnRW fd:%d r:%d w:%d", conn->fd, r, w);
-    //可写：由引擎内部刷写缓冲（对齐 socket_server.c，不通知服务）
+    //可写：主动连接中 → 检查连接结果；否则由引擎内部刷写缓冲（对齐 socket_server.c，不通知服务）
     if(w) {
-        OnWriteable(conn->fd);
+        if(conn->connecting) {
+            OnConnectFinish(conn);
+        }
+        else {
+            OnWriteable(conn->fd);
+        }
     }
-    //可读：读是引擎操作，由 socket 线程读出数据再投递（对齐 skynet，服务收现成数据）
-    if(r) {
+    //可读：连接未完成时忽略（非阻塞 connect 的 EPOLLIN 空读）；读是引擎操作，由 socket 线程读出数据再投递
+    if(r && !conn->connecting) {
         if(conn->type == Conn::TYPE::UDP) {
             ReadUdp(conn);
         }
         else {
             ReadData(conn);
+        }
+    }
+}
+
+//主动连接完成：getsockopt 检查结果（对齐 skynet report_connect）
+void SocketServer::OnConnectFinish(shared_ptr<Conn> conn) {
+    int error = 0;
+    socklen_t len = sizeof(error);
+    int code = getsockopt(conn->fd, SOL_SOCKET, SO_ERROR, &error, &len);
+    if(code < 0 || error) {
+        //失败：通知服务（ERROR），清理
+        int err = code < 0 ? errno : error;
+        starnet_error("connect fail, fd=%d err=%s", conn->fd, strerror(err));
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::ERROR;
+        msg->fd = conn->fd;
+        msg->buff = strerror(err);
+        if(listener) {
+            listener->OnSocketMsg(msg, conn->serviceId);
+        }
+        RemoveConn(conn->fd);
+        close(conn->fd);
+        RemoveEvent(conn->fd);
+    }
+    else {
+        //成功：恢复只读（必须关 EPOLLOUT，否则 ET 下持续触发忙循环），通知服务（CONNECT 带对端 ip）
+        conn->connecting = false;
+        ModifyEvent(conn->fd, false);
+        struct sockaddr_storage sa;
+        socklen_t slen = sizeof(sa);
+        string ip;
+        if(getpeername(conn->fd, (struct sockaddr*)&sa, &slen) == 0) {
+            char buf[INET6_ADDRSTRLEN];
+            void* addr = (sa.ss_family == AF_INET) ? (void*)&((struct sockaddr_in*)&sa)->sin_addr : (void*)&((struct sockaddr_in6*)&sa)->sin6_addr;
+            if(inet_ntop(sa.ss_family, addr, buf, sizeof(buf))) {
+                ip = buf;
+            }
+        }
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::CONNECT;
+        msg->fd = conn->fd;
+        msg->buff = ip;
+        if(listener) {
+            listener->OnSocketMsg(msg, conn->serviceId);
         }
     }
 }
@@ -608,4 +660,79 @@ int SocketServer::SendUdp(int fd, const char* addr, int port, shared_ptr<char> b
         return -1;
     }
     return n;
+}
+
+//主动连接（对齐 skynet socket_server_connect：getaddrinfo 支持 IPv4/IPv6 + 非阻塞 connect）
+int SocketServer::Connect(uint32_t serviceId, const char* host, int port) {
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    char portstr[16];
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    int rc = getaddrinfo(host, portstr, &hints, &res);
+    if(rc != 0 || res == NULL) {
+        starnet_error("Connect getaddrinfo fail, host=%s port=%d rc=%d", host, port, rc);
+        return -1;
+    }
+    //遍历地址：socket + 非阻塞 + connect（失败且非 EINPROGRESS 换下一个）
+    int fd = -1;
+    int status = -1;
+    struct addrinfo* ai = NULL;
+    for(ai = res; ai != NULL; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if(fd < 0) {
+            continue;
+        }
+        fcntl(fd, F_SETFL, O_NONBLOCK);
+        status = connect(fd, ai->ai_addr, ai->ai_addrlen);
+        if(status != 0 && errno != EINPROGRESS) {
+            close(fd);
+            fd = -1;
+            continue;
+        }
+        break;
+    }
+    if(fd < 0) {
+        starnet_error("Connect socket/connect fail, host=%s port=%d errno=%d", host, port, errno);
+        freeaddrinfo(res);
+        return -1;
+    }
+    //管理 + epoll
+    AddConn(fd, serviceId, Conn::TYPE::CLIENT);
+    auto conn = GetConn(fd);
+    if(status == 0) {
+        //立即连接成功：投 CONNECT（带对端 ip）
+        if(conn) {
+            conn->connecting = false;
+        }
+        AddEvent(fd);
+        string ip;
+        if(ai) {
+            char buf[INET6_ADDRSTRLEN];
+            void* addr = (ai->ai_family == AF_INET) ? (void*)&((struct sockaddr_in*)ai->ai_addr)->sin_addr : (void*)&((struct sockaddr_in6*)ai->ai_addr)->sin6_addr;
+            if(inet_ntop(ai->ai_family, addr, buf, sizeof(buf))) {
+                ip = buf;
+            }
+        }
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::CONNECT;
+        msg->fd = fd;
+        msg->buff = ip;
+        if(listener) {
+            listener->OnSocketMsg(msg, serviceId);
+        }
+    }
+    else {
+        //EINPROGRESS：等 EPOLLOUT 触发检查结果（OnRW → OnConnectFinish）
+        if(conn) {
+            conn->connecting = true;
+        }
+        AddEvent(fd);
+        ModifyEvent(fd, true);
+    }
+    freeaddrinfo(res);
+    return fd;
 }

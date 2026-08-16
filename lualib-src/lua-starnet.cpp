@@ -31,6 +31,7 @@ void LuaAPI::Register(lua_State *luaState) {
         { "Listen", Listen },
         { "CloseConn", CloseConn },
         { "Write", Write },
+        { "Connect", Connect },
         { "Udp", Udp },
         { "SetUdpAddress", SetUdpAddress },
         { "SendUdp", SendUdp },
@@ -247,6 +248,21 @@ int LuaAPI::Write(lua_State *luaState){
     int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr, std::default_delete<char[]>()), len);
     //返回值
     lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//主动连接（对齐 skynet c.connect）
+//参数：host(string), port(int)；返回 fd（-1 失败）；成功投 dispatch("connect")，失败投 dispatch("error")
+int LuaAPI::Connect(lua_State *luaState){
+    if(lua_isstring(luaState, 1) == 0 || lua_isinteger(luaState, 2) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    const char* host = lua_tostring(luaState, 1);
+    int port = (int)lua_tointeger(luaState, 2);
+    Service* srv = GetCurrentService(luaState);
+    int fd = Starnet::inst->Connect(srv ? srv->id : 0, host, port);
+    lua_pushinteger(luaState, fd);
     return 1;
 }
 

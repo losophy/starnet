@@ -201,6 +201,24 @@ void Service::OnSocketMsg(shared_ptr<SocketMsg> msg) {
         CallStarnetLua("dispatch_socket", 4);
         return;
     }
+    //主动连接成功（对齐 skynet dispatch("connect", fd, ip)）
+    if(msg->subtype == SocketMsg::SUBTYPE::CONNECT) {
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::CONNECT);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushlstring(luaState, msg->buff.data(), msg->buff.size());
+        lua_pushinteger(luaState, 0);
+        CallStarnetLua("dispatch_socket", 4);
+        return;
+    }
+    //连接失败等错误（对齐 skynet dispatch("error", fd, err)）
+    if(msg->subtype == SocketMsg::SUBTYPE::ERROR) {
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::ERROR);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushlstring(luaState, msg->buff.data(), msg->buff.size());
+        lua_pushnil(luaState);
+        CallStarnetLua("dispatch_socket", 4);
+        return;
+    }
     //套接字可读（DATA：socket 线程已读出数据，直接分发，对齐 skynet 引擎统一读）
     if(msg->subtype == SocketMsg::SUBTYPE::DATA) {
         //协程化分发 socket 数据（对齐 skynet.dispatch("socket", ...)）

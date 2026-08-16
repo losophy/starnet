@@ -252,3 +252,8 @@ int Starnet::SetUdpAddress(int fd, const char* addr, int port) {
 int Starnet::SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len) {
     return socketServer->SendUdp(fd, addr, port, buff, len);
 }
+
+//主动连接（对齐 skynet socket_server_connect）
+int Starnet::Connect(uint32_t serviceId, const char* host, int port) {
+    return socketServer->Connect(serviceId, host, port);
+}

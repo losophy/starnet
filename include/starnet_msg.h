@@ -38,9 +38,10 @@ class SocketMsg : public BaseMsg {
 public:
     enum SUBTYPE {          //socket 子类型（对齐 skynet socket_server.h）
         DATA = 1,           // SKYNET_SOCKET_TYPE_DATA（原始字节流，Lua 侧 netpack 解析）
-        CONNECT = 2,        // SKYNET_SOCKET_TYPE_CONNECT（主动连接结果）
+        CONNECT = 2,        // SKYNET_SOCKET_TYPE_CONNECT（主动连接成功）
         CLOSE = 3,          // SKYNET_SOCKET_TYPE_CLOSE
         ACCEPT = 4,         // SKYNET_SOCKET_TYPE_ACCEPT
+        ERROR = 5,          // SKYNET_SOCKET_TYPE_ERROR（连接失败等错误，buff 为错误描述）
         UDP = 6,            // SKYNET_SOCKET_TYPE_UDP（UDP 数据报，报式无粘包）
     };
     int subtype;            //socket 子类型（SUBTYPE）

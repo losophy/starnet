@@ -24,6 +24,9 @@ public:
     static int CloseConn(lua_State *luaState);
     static int Write(lua_State *luaState);
 
+    //主动连接（对齐 skynet c.connect）
+    static int Connect(lua_State *luaState);
+
     //UDP（对齐 skynet c.udp / c.udp_connect / c.send_udp）
     static int Udp(lua_State *luaState);
     static int SetUdpAddress(lua_State *luaState);

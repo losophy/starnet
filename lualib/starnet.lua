@@ -39,8 +39,10 @@ local PTYPE_SNAX = 11
 
 --socket 子类型（对齐 socket_server.h 的 SKYNET_SOCKET_TYPE_*）
 local SKYNET_SOCKET_TYPE_DATA = 1
+local SKYNET_SOCKET_TYPE_CONNECT = 2
 local SKYNET_SOCKET_TYPE_CLOSE = 3
 local SKYNET_SOCKET_TYPE_ACCEPT = 4
+local SKYNET_SOCKET_TYPE_ERROR = 5
 local SKYNET_SOCKET_TYPE_UDP = 6
 
 local starnet = {}
@@ -88,6 +90,8 @@ starnet.register_protocol({ name = "socket", id = PTYPE_SOCKET, pack = pack_stri
 starnet.register_protocol({ name = "accept", pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "close", pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "udp", pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "connect", pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "error", pack = pack_string, unpack = unpack_string })
 
 --协程池
 local coroutine_pool = {}
@@ -228,6 +232,18 @@ function starnet.dispatch_socket(subtype, a, b, c, d)
         if p and p.dispatch then
             dispatch_in_coroutine(p.dispatch, a, b)  -- func(clientfd, listenfd)
         end
+    elseif subtype == SKYNET_SOCKET_TYPE_CONNECT then
+        --主动连接成功（对齐 skynet dispatch("connect", fd, ip)）
+        local p = proto["connect"]
+        if p and p.dispatch then
+            dispatch_in_coroutine(p.dispatch, a, b)  -- func(fd, ip)
+        end
+    elseif subtype == SKYNET_SOCKET_TYPE_ERROR then
+        --连接失败等错误（对齐 skynet dispatch("error", fd, err)）
+        local p = proto["error"]
+        if p and p.dispatch then
+            dispatch_in_coroutine(p.dispatch, a, b)  -- func(fd, err)
+        end
     elseif subtype == SKYNET_SOCKET_TYPE_CLOSE then
         --连接关闭：清除该fd半包
         netpack.close(netpack_queue, a)
@@ -356,6 +372,11 @@ function starnet.send_udp(fd, msg, addr, port)
         return c.send_udp(fd, nil, 0, msg)
     end
     return c.send_udp(fd, addr, port or 0, msg)
+end
+
+--主动连接（对齐 skynet.socket.connect：非阻塞，返回 fd；成功投 dispatch("connect", fd, ip)，失败投 dispatch("error", fd, err)）
+function starnet.connect(addr, port)
+    return c.connect(addr, port)
 end
 
 --写日志（对齐 skynet.log：走统一日志器，时间戳 + 落盘/stderr）

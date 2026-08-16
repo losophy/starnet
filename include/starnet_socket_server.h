@@ -57,6 +57,8 @@ public:
     int SetUdpAddress(int fd, const char* addr, int port);
     //UDP：发送（addr/port 为空用默认对端；直接 sendto，无写缓冲）
     int SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len);
+    //主动连接（对齐 skynet socket_server_connect：非阻塞 connect，完成投 CONNECT，失败投 ERROR）
+    int Connect(uint32_t serviceId, const char* host, int port);
 private:
     void OnEvent(epoll_event ev);
     void OnAccept(shared_ptr<Conn> conn);
@@ -65,6 +67,8 @@ private:
     void ReadData(shared_ptr<Conn> conn);   //TCP：循环 read 到 EAGAIN
     void ReadUdp(shared_ptr<Conn> conn);    //UDP：循环 recvfrom 到 EAGAIN
     void NotifyClose(shared_ptr<Conn> conn); //读 EOF/错误：通知 close + 清理
+    //主动连接完成（EPOLLOUT 触发，getsockopt 检查结果，对齐 skynet report_connect）
+    void OnConnectFinish(shared_ptr<Conn> conn);
     //写缓冲内部
     void EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);
     void EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);

@@ -101,6 +101,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量）；示例 `thread=8`（对齐 skynet 标准），避免 thread≤4 时全部 weight=-1（每轮 1 条）的低效 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | ✅ 已补：服务退出丢弃残留消息时给发送方回 `PTYPE_ERROR`（对齐 `drop_message`）；Lua 侧 `call` 收到 ERROR 报错退出 | 决策：SocketMsg 不加 source 字段（详见下方说明）；队列内存随 Service 生命周期（`shared_ptr` 自管） |
 | **UDP** | `socket_server.c` 的 `socket_server_udp*` / `skynet_socket.c` 的 `SKYNET_SOCKET_TYPE_UDP` | ✅ 已补：`AddUdp/SetUdpAddress/SendUdp`（`starnet.udp/udp_connect/send_udp`），`getaddrinfo` 支持 IPv4/IPv6，socket 线程循环 `recvfrom` 读（读归引擎），报文带二进制对端地址（对齐 `gen_udp_address`） | 决策：UDP 无写缓冲（直接 `sendto`；skynet 的 UDP 写缓冲是「与 TCP 共用一套发送流程」的副产品，详见下方说明）；报式无粘包，`dispatch("udp", fd, msg, addr, port)` 不走 netpack |
+| **主动连接** | `socket_server.c` 的 `socket_server_connect` / `skynet_socket.c` 的 `SKYNET_SOCKET_TYPE_CONNECT` | ✅ 已补：`Connect`（`starnet.connect(host, port)`），`getaddrinfo` 支持 IPv4/IPv6 + 非阻塞 `connect`（立即成功或 EINPROGRESS 等 EPOLLOUT）；完成 `getsockopt(SO_ERROR)` 检查，成功投 `CONNECT`（带对端 ip）、失败投 `ERROR`（带错误串）；`Conn.connecting` 标志连接中 | 决策：connect 失败走 `SKYNET_SOCKET_TYPE_ERROR`（对齐 skynet，`dispatch("error", fd, err)`），业务可区分「连不上」与「连上后断开」；无 connect 超时（靠 TCP 内核超时，对齐 skynet） |
 
 > **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：
 > 1. **对齐 skynet 实际做法**——skynet 的 `mem_info.c` 报告的就是进程 RSS（读 `/proc/self/status` 的 `VmRSS`），`skynet.mem()` 返回进程级内存，并非单服务统计；
@@ -126,7 +127,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 ### 网络能力
 
 - **UDP**：✅ 已补（`starnet.udp/udp_connect/send_udp`，IPv4/IPv6，socket 线程读，无写缓冲，见现状表 UDP 行）。
-- **主动连接**：`skynet_socket_connect`（starnet 只能 listen）。
+- **主动连接**：✅ 已补（`starnet.connect(host, port)`，非阻塞 connect + `getsockopt` 检查；成功 `dispatch("connect", fd, ip)`、失败 `dispatch("error", fd, err)`，见现状表「主动连接」行）。
 - **绑定已有 fd**：`skynet_socket_bind`。
 - **写缓冲优先级**：`sendbuffer_lowpriority`（starnet 单队列）。
 - **连接控制**：`nodelay / pause / start / shutdown`。
@@ -179,7 +180,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP（✅ 已完成）、connect、标准服务集、lualib | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP（✅ 已完成）、connect（✅ 已完成）、标准服务集、lualib | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
 
