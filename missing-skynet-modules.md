@@ -20,6 +20,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_handle.cpp/h` + `Starnet` 异步退休 | `skynet_handle.c` | 服务句柄/名字服务：`name/localname`、handle 从 1 开始（0 保留）、KillService 跨线程安全（worker 线程执行退出） |
 | `starnet_env.cpp/h` + `StarnetConfig.env` | `skynet_env.c` | 环境配置：config 全部顶层键 + 运行时 `getenv/setenv`（用 C++ `unordered_map`+rwlock 实现，语义对齐 Lua 表方案） |
 | `starnet_monitor.cpp/h` + `StarnetStart` monitor 线程 | `skynet_monitor.c` | 监视器：每 worker 一个 monitor（trigger/check）+ 5 秒检查线程，服务卡死打告警 |
+| `starnet_mem.cpp/h` + `Starnet::MemoryUsed` + Lua `starnet.mem()` | `malloc_hook.c` / `mem_info.c` | 内存统计：进程 RSS（KB，读 `/proc/self/status`，对齐 `mem_info.c`；泄漏排查用外部 valgrind） |
 | `examples/main、chat、ping、db` + `starnet_config.cpp`（`luaservice` 模板，对齐 `skynet_main.c`/`service_snlua.c`） | `examples/` + `service/` | 示例服务 |
 | `starnet_timer.cpp/h`（时间轮 + timer 线程，每 2.5ms 驱动） | `skynet_timer.c` | 定时器系统（极简版） |
 
@@ -95,9 +96,15 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **日志系统** | `skynet_error.c` / `skynet_log.c` | ✅ 已补：`starnet_logger.cpp/h`（时间戳 + 级别 + 文件/stderr、线程安全、`config.logger` 指定文件、Lua 侧 `starnet.log`）；框架 `cout` 已替换 | 无 skynet 的 logger 独立服务（日志作为服务可按需替换） |
 | **配置系统** | `skynet_env.c` | ✅ 已补：`starnet_env.cpp/h`（`getenv/setenv`，config 全部顶层键导入 env） | env 用 C++ `unordered_map`+rwlock 实现（**不照搬 Lua 表**）：starnet 为 C++ 单体、env 读多写少、避免额外 `lua_State` 与 `skynet_getenv` 返回指针跨调用失效的坑；语义等价；未补 skynet 内置 env 项（`mem_limit` 等） |
 | **监视器** | `skynet_monitor.c` | ✅ 已补：`starnet_monitor.cpp/h`（每 worker 一个 monitor，处理消息前 trigger / 批后 check；monitor 线程每 5 秒检查，卡死打 `starnet_error` 告警） | 无 Lua `endless` 调试接口（告警为 C 侧输出，对齐 skynet 默认行为） |
-| **内存管理** | `malloc_hook.c` / `mem_info.c` | 无内存统计（曾用 `char load[999999]` 占位，已移除） | 无内存统计、无泄漏排查工具 |
+| **内存管理** | `malloc_hook.c` / `mem_info.c` | ✅ 已补：`starnet_mem.cpp/h`（进程 RSS 报告，对齐 `mem_info.c`） | 决策：内存统计用「进程 RSS」，不做全局 `operator new` 重载（详见下方说明） |
 | **队列 overload / 权重调度** | `skynet_mq.c` | globalQueue 为普通 `queue` + spinlock | 无 `MQ_OVERLOAD` 告警、无 weight 加权调度 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | 服务退出时队列消息直接丢 | 服务退出清理不安全 |
+
+> **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：
+> 1. **对齐 skynet 实际做法**——skynet 的 `mem_info.c` 报告的就是进程 RSS（读 `/proc/self/status` 的 `VmRSS`），`skynet.mem()` 返回进程级内存，并非单服务统计；
+> 2. **RSS 即监控全景**——单进程框架下，进程内存 = 框架全部内存（starnet 服务为 Lua 脚本，Lua 内存也在进程内）；
+> 3. **不做全局 `operator new` 重载**——`malloc_hook` 的宏替换 `malloc/free` 在 C++ 不可行（统计不到 `new/delete` 与 std 容器）；C++ 等价物为全局 `operator new` 重载，侵入整个进程所有分配（含 std 库内部），须正确实现分配失败的 `bad_alloc` 异常语义与对齐处理，且**同样没有泄漏定位能力**，收益与风险不成比例；
+> 4. **泄漏排查用外部工具**（valgrind/heaptrack），非框架内模块职责。
 
 > **C 模块加载（`skynet_module`）为何不实施**：skynet 用 `dlopen` 按名加载 `.so`，是因为其「C 内核 + 可插拔 C 服务」架构——C 语言没有运行时按名分派机制，只能交给操作系统加载器的符号表。starnet 是 C++ 单体：
 > 1. **服务已是运行时加载**——`Service::OnInit` 按 `luaservice` 模板把 `?` 替换为类型名找 `<type>/init.lua`（等价于「模块查询 + snlua」），加新服务零重编译；
@@ -162,7 +169,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P1（灵魂）** | 2. Lua 协程 + Session RPC 层（`skynet.call/response/wakeup`） | P0 |
 | **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
-| **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计；队列 overload 与 weight 调度 | 无 |
+| **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）；队列 overload 与 weight 调度 | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
 | **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
 

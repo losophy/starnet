@@ -334,6 +334,11 @@ function starnet.setenv(name, value)
     c.setenv(name, value)
 end
 
+--内存统计（对齐 skynet.mem：进程 RSS，KB）
+function starnet.mem()
+    return c.mem()
+end
+
 --RPC请求：分配 session 发送并挂起等待响应（对齐 skynet.call）
 local function yield_call(service, session)
     session_id_coroutine[session] = running_thread

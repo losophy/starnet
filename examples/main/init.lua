@@ -6,6 +6,8 @@ starnet.start(function()
     --演示配置系统：starnet.getenv 查询 config 键（对齐 skynet.getenv）
     starnet.log("config test_config = "..tostring(starnet.getenv("test_config")))
     starnet.log("config harbor = "..tostring(starnet.getenv("harbor")))
+    --演示内存统计：进程 RSS（KB，对齐 skynet.mem）
+    starnet.log("mem used = "..tostring(starnet.mem()).." KB")
     --启动子服务
     starnet.NewService("chat")
     local ping = starnet.NewService("ping")

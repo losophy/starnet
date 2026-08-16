@@ -4,6 +4,7 @@
 #include "starnet_handle.h"
 #include "starnet_logger.h"
 #include "starnet_env.h"
+#include "starnet_mem.h"
 #include <iostream>
 #include <assert.h>
 
@@ -138,6 +139,11 @@ string Starnet::GetEnv(const char* key, bool* found) {
 //环境配置：设置（对齐 skynet_setenv）
 void Starnet::SetEnv(const char* key, const char* value) {
     starnet_setenv(key, value);
+}
+
+//内存统计：进程常驻内存 KB（对齐 skynet.mem / mem_info）
+size_t Starnet::MemoryUsed() {
+    return starnet_memory_used();
 }
 
 //发送消息

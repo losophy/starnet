@@ -38,6 +38,8 @@ void LuaAPI::Register(lua_State *luaState) {
         { "getenv", GetEnv },
         { "setenv", SetEnv },
 
+        { "mem", Mem },
+
         { "log", Log },
 
         { "timeout", Timeout },
@@ -313,6 +315,13 @@ int LuaAPI::SetEnv(lua_State *luaState){
     string v(val, vlen);
     Starnet::inst->SetEnv(k.c_str(), v.c_str());
     return 0;
+}
+
+//内存统计（对齐 skynet.mem：进程 RSS，KB）
+int LuaAPI::Mem(lua_State *luaState){
+    size_t used = Starnet::inst->MemoryUsed();
+    lua_pushinteger(luaState, (lua_Integer)used);
+    return 1;
 }
 
 //写日志（对齐 skynet.log：走统一日志器，时间戳 + 级别 + 落盘/stderr）

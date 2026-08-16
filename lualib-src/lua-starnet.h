@@ -32,6 +32,9 @@ public:
     static int GetEnv(lua_State *luaState);
     static int SetEnv(lua_State *luaState);
 
+    //内存统计（对齐 skynet.mem：进程 RSS，KB）
+    static int Mem(lua_State *luaState);
+
     //写日志（对齐 skynet.log）
     static int Log(lua_State *luaState);
 

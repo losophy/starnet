@@ -31,6 +31,8 @@ public:
     //环境配置（对齐 skynet_getenv/setenv）
     string GetEnv(const char* key, bool* found = NULL);
     void SetEnv(const char* key, const char* value);
+    //内存统计（对齐 skynet.mem：进程 RSS，KB）
+    size_t MemoryUsed();
     //发送消息
     void Send(uint32_t toId, shared_ptr<BaseMsg> msg);
     //仅测试
