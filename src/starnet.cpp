@@ -3,6 +3,7 @@
 #include "starnet_timer.h"
 #include "starnet_handle.h"
 #include "starnet_logger.h"
+#include "starnet_env.h"
 #include <iostream>
 #include <assert.h>
 
@@ -23,13 +24,18 @@ Starnet::Starnet(){
 
 //开启系统（对齐 skynet_start(&config)）
 void Starnet::Start(StarnetConfig& cfg) {
+    //保存配置
+    config = cfg;
+    //初始化环境配置并导入 config 全部键（对齐 skynet_env + config 搬全局）
+    starnet_env_init();
+    for(auto& kv : config.env) {
+        starnet_setenv(kv.first.c_str(), kv.second.c_str());
+    }
     //初始化日志系统（对齐 skynet：logger 服务由 config.logger 指定输出文件）
     if(!starnet_logger_init(cfg.logger.empty() ? NULL : cfg.logger.c_str())) {
         starnet_error("open logger file fail: %s", cfg.logger.c_str());
     }
     starnet_log("Hello Starnet");
-    //保存配置
-    config = cfg;
     //忽略SIGPIPE信号
     signal(SIGPIPE, SIG_IGN);
     //锁
@@ -122,6 +128,16 @@ bool Starnet::NameService(uint32_t handle, const char* name) {
 //名字服务：按名字查 handle（0=未找到，对齐 skynet_handle_findname）
 uint32_t Starnet::FindServiceByName(const char* name) {
     return starnet_handle_findname(name);
+}
+
+//环境配置：查询（对齐 skynet_getenv）
+string Starnet::GetEnv(const char* key, bool* found) {
+    return starnet_getenv(key, found);
+}
+
+//环境配置：设置（对齐 skynet_setenv）
+void Starnet::SetEnv(const char* key, const char* value) {
+    starnet_setenv(key, value);
 }
 
 //发送消息

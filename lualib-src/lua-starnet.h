@@ -28,6 +28,10 @@ public:
     static int Name(lua_State *luaState);
     static int LocalName(lua_State *luaState);
 
+    //环境配置（对齐 skynet getenv / setenv）
+    static int GetEnv(lua_State *luaState);
+    static int SetEnv(lua_State *luaState);
+
     //写日志（对齐 skynet.log）
     static int Log(lua_State *luaState);
 

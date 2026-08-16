@@ -68,6 +68,7 @@ end)
 |---|---|---|
 | `starnet.self()` | 当前服务 id | `skynet.self()` |
 | `starnet.log(...)` | 写日志（统一日志器：时间戳 + 级别 + `config.logger` 文件/stderr） | `skynet.log` |
+| `starnet.getenv(name)` / `starnet.setenv(name, value)` | 环境配置查询/设置（config 全部键 + 运行时修改；getenv 不存在返回 nil） | `skynet.getenv` / `skynet.setenv` |
 | `starnet.name(name, handle)` / `starnet.localname(name)` | 注册本地名（`.` 前缀）/ 按名查 id | `skynet.name` / `skynet.localname` |
 | `starnet.NewService(type)` | 新建服务 | `skynet.newservice` |
 | `starnet.KillService(id)` / `starnet.exit()` | 退出服务 | `skynet.kill` |

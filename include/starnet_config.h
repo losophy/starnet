@@ -1,9 +1,10 @@
 #pragma once
 #include <string>
+#include <unordered_map>
 
 using namespace std;
 
-//启动配置（对齐 skynet config：luaservice / start / thread / lua_path）
+//启动配置（对齐 skynet config：luaservice / start / thread / lua_path / logger）
 struct StarnetConfig {
     //服务搜索模板（;分隔多路径，?为服务名占位，对齐 skynet 的 luaservice/LUA_SERVICE）
     string service;
@@ -15,6 +16,8 @@ struct StarnetConfig {
     string luaPath;
     //日志输出文件（对齐 skynet 的 logger）；空串表示写 stderr
     string logger;
+    //完整配置 k/v（对齐 skynet env：config 全部顶层标量键，运行时可 getenv/setenv 查询修改）
+    unordered_map<string, string> env;
 
     //默认配置（对齐 skynet optstring 的默认值精神）
     static StarnetConfig Default();

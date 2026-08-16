@@ -35,6 +35,9 @@ void LuaAPI::Register(lua_State *luaState) {
         { "name", Name },
         { "localname", LocalName },
 
+        { "getenv", GetEnv },
+        { "setenv", SetEnv },
+
         { "log", Log },
 
         { "timeout", Timeout },
@@ -277,6 +280,39 @@ int LuaAPI::LocalName(lua_State *luaState){
     uint32_t handle = Starnet::inst->FindServiceByName(name);
     lua_pushinteger(luaState, handle);
     return 1;
+}
+
+//环境配置：查询（对齐 skynet.getenv；不存在返回 nil）
+int LuaAPI::GetEnv(lua_State *luaState){
+    if(lua_isstring(luaState, 1) == 0) {
+        lua_pushnil(luaState);
+        return 1;
+    }
+    const char* key = lua_tostring(luaState, 1);
+    bool found = false;
+    string v = Starnet::inst->GetEnv(key, &found);
+    if(!found) {
+        lua_pushnil(luaState);
+    }
+    else {
+        lua_pushstring(luaState, v.c_str());
+    }
+    return 1;
+}
+
+//环境配置：设置（对齐 skynet.setenv）
+int LuaAPI::SetEnv(lua_State *luaState){
+    if(lua_isstring(luaState, 1) == 0 || lua_isstring(luaState, 2) == 0) {
+        return 0;
+    }
+    size_t klen = 0;
+    const char* key = lua_tolstring(luaState, 1, &klen);
+    size_t vlen = 0;
+    const char* val = lua_tolstring(luaState, 2, &vlen);
+    string k(key, klen);
+    string v(val, vlen);
+    Starnet::inst->SetEnv(k.c_str(), v.c_str());
+    return 0;
 }
 
 //写日志（对齐 skynet.log：走统一日志器，时间戳 + 级别 + 落盘/stderr）

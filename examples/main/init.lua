@@ -3,6 +3,9 @@ local starnet = require "starnet"
 
 starnet.start(function()
     print("[lua] main start id:"..starnet.self())
+    --演示配置系统：starnet.getenv 查询 config 键（对齐 skynet.getenv）
+    starnet.log("config test_config = "..tostring(starnet.getenv("test_config")))
+    starnet.log("config harbor = "..tostring(starnet.getenv("harbor")))
     --启动子服务
     starnet.NewService("chat")
     local ping = starnet.NewService("ping")

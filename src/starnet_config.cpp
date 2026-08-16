@@ -1,6 +1,7 @@
 #include "starnet_config.h"
 #include "starnet_logger.h"
 #include <iostream>
+#include <stdio.h>
 
 extern "C" {
     #include "lua.h"
@@ -72,6 +73,35 @@ StarnetConfig StarnetConfig::Load(const char* filename) {
             cfg.logger = lua_tostring(L, -1);
         }
         lua_pop(L, 1);
+
+        //导入全部顶层标量键到 env（对齐 skynet 把 config 表设为全局环境）
+        lua_pushnil(L);
+        while(lua_next(L, -2)) {
+            //key 在 -2，value 在 -1
+            if(lua_isstring(L, -2)) {
+                const char* k = lua_tostring(L, -2);
+                switch(lua_type(L, -1)) {
+                    case LUA_TSTRING: {
+                        size_t l = 0;
+                        const char* v = lua_tolstring(L, -1, &l);
+                        cfg.env[k] = string(v, l);
+                        break;
+                    }
+                    case LUA_TBOOLEAN:
+                        cfg.env[k] = lua_toboolean(L, -1) ? "true" : "false";
+                        break;
+                    case LUA_TNUMBER: {
+                        char buf[64];
+                        snprintf(buf, sizeof(buf), "%lld", (long long)lua_tointeger(L, -1));
+                        cfg.env[k] = buf;
+                        break;
+                    }
+                    default:
+                        break;  //嵌套表等忽略（config 为标量键值对）
+                }
+            }
+            lua_pop(L, 1);
+        }
     }
     lua_close(L);
     return cfg;

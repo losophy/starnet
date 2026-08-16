@@ -28,6 +28,9 @@ public:
     //名字服务（对齐 skynet_handle_namehandle/findname）
     bool NameService(uint32_t handle, const char* name);
     uint32_t FindServiceByName(const char* name);
+    //环境配置（对齐 skynet_getenv/setenv）
+    string GetEnv(const char* key, bool* found = NULL);
+    void SetEnv(const char* key, const char* value);
     //发送消息
     void Send(uint32_t toId, shared_ptr<BaseMsg> msg);
     //仅测试

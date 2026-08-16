@@ -324,6 +324,16 @@ function starnet.log(...)
     c.log(...)
 end
 
+--环境配置：查询（对齐 skynet.getenv；键不存在返回 nil）
+function starnet.getenv(name)
+    return c.getenv(name)
+end
+
+--环境配置：设置（对齐 skynet.setenv）
+function starnet.setenv(name, value)
+    c.setenv(name, value)
+end
+
 --RPC请求：分配 session 发送并挂起等待响应（对齐 skynet.call）
 local function yield_call(service, session)
     session_id_coroutine[session] = running_thread

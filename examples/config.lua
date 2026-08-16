@@ -11,4 +11,10 @@ return {
     luaPath = "../lualib/?.lua",
     --日志输出文件（对齐 skynet logger；不配置或空串则写 stderr）
     logger = "",
+    --对齐 skynet config 常见键（运行时可 starnet.getenv 查询）
+    harbor = 0,
+    daemon = false,
+    profile = false,
+    --演示自定义配置
+    test_config = "hello from config",
 }
