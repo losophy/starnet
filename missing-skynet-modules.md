@@ -93,7 +93,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **日志系统** | `skynet_error.c` / `skynet_log.c` | 全部 `cout` 打印 | 无统一日志（时间戳、源、落盘、轮转） |
 | **配置系统** | `skynet_env.c` | 无 config 解析、无 `getenv/setenv` | 端口/路径/线程数不可配置 |
 | **监视器** | `skynet_monitor.c` | 无死循环/卡死检测 | 服务死循环无告警（`skynet.endless`） |
-| **内存管理** | `malloc_hook.c` / `mem_info.c` | `starnet_msg.h` 里 `char load[999999]` 为临时 hack | 无内存统计、无泄漏排查工具 |
+| **内存管理** | `malloc_hook.c` / `mem_info.c` | 无内存统计（曾用 `char load[999999]` 占位，已移除） | 无内存统计、无泄漏排查工具 |
 | **队列 overload / 权重调度** | `skynet_mq.c` | globalQueue 为普通 `queue` + spinlock | 无 `MQ_OVERLOAD` 告警、无 weight 加权调度 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | 服务退出时队列消息直接丢 | 服务退出清理不安全 |
 

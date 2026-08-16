@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <string>
 using namespace std; 
 
 //消息基类
@@ -20,7 +21,6 @@ public:
         RESERVED_SNAX = 11,  // PTYPE_RESERVED_SNAX
     }; 
     uint8_t type;           //消息类型
-    char load[999999]{};    //用于检测内存泄漏
     virtual ~BaseMsg(){};
 };
 
@@ -29,8 +29,7 @@ class ServiceMsg : public BaseMsg  {
 public: 
     uint32_t source;        //消息发送方
     int session;            //会话号（0 表示无需响应）
-    shared_ptr<char> buff;  //消息内容
-    size_t size;            //消息内容大小
+    string buff;            //消息内容（std::string 自管内存，size 取 buff.size()）
 };
 
 //socket 消息（type=SOCKET，子类型对齐 socket_server.h 的 SKYNET_SOCKET_TYPE_*）

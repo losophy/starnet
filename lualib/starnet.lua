@@ -251,6 +251,8 @@ end
 
 function starnet.exit()
     c.KillService(c.self())
+    --终止当前协程（对齐 skynet exit 投 QUIT 后挂起，避免 exit 后代码继续执行）
+    coroutine_yield("QUIT")
 end
 
 --名字服务（对齐 skynet.name / skynet.localname）
@@ -266,16 +268,21 @@ function starnet.localname(name)
     return handle
 end
 
---地址解析：支持整数 id 或 '.名字'（对齐 skynet queryname）
-local function resolve_addr(addr)
+--地址解析：支持整数 id 或 '.名字'（对齐 skynet queryname）；未注册名返回 nil
+local function resolve_addr_or_nil(addr)
     if type(addr) == "string" then
-        local h = starnet.localname(addr)
-        if not h then
-            error("invalid address: " .. tostring(addr))
-        end
-        return h
+        return starnet.localname(addr)
     end
     return addr
+end
+
+--地址解析：失败抛错（用于 call）
+local function resolve_addr(addr)
+    local h = resolve_addr_or_nil(addr)
+    if not h then
+        error("invalid address: " .. tostring(addr))
+    end
+    return h
 end
 
 --启动函数（对齐 skynet.start：主协程执行）
@@ -296,10 +303,15 @@ function starnet.dispatch(typename, func)
 end
 
 --发送消息（无需响应，session=0，对齐 skynet.send/rawsend）
+--地址解析失败（无效 .名字）时静默丢弃（对齐 skynet.send 容错，不抛错）
 function starnet.send(addr, typename, ...)
     local p = proto[typename]
     local msg = p.pack(...) or ""
-    c.send_session(resolve_addr(addr), p.id, 0, msg)
+    addr = resolve_addr_or_nil(addr)
+    if not addr then
+        return
+    end
+    c.send_session(addr, p.id, 0, msg)
 end
 
 --网络封包：加 2 字节大端长度头（对齐 skynet netpack.pack）

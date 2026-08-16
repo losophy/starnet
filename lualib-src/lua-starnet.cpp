@@ -57,10 +57,7 @@ int LuaAPI::NewService(lua_State *luaState) {
     }
     size_t len = 0;
     const char *type = lua_tolstring(luaState, 1, &len);
-    char * newstr = new char[len+1]; //后面加\0 
-    newstr[len] = '\0';
-    memcpy(newstr, type, len);
-    auto t = make_shared<string>(newstr);
+    auto t = make_shared<string>(type, len);  //直接用 Lua 字符串构造，避免裸 new 泄漏
     //处理
     uint32_t id = Starnet::inst->NewService(t);
     //返回值
@@ -108,15 +105,12 @@ int LuaAPI::Send(lua_State *luaState) {
         return 0;
     }
     size_t len = 0;
-    const char *buff = lua_tolstring(luaState, 3, &len);
-    char * newstr = new char[len];
-    memcpy(newstr, buff, len);
+    const char *text = lua_tolstring(luaState, 3, &len);
     //处理
     auto msg= make_shared<ServiceMsg>();
     msg->type = BaseMsg::TYPE::LUA;
     msg->source = source;
-    msg->buff = shared_ptr<char>(newstr);
-    msg->size = len;
+    msg->buff.assign(text, len);
     Starnet::inst->Send(toId, msg);
     //返回值
     //（无）
@@ -150,17 +144,14 @@ int LuaAPI::SendSession(lua_State *luaState) {
         return 0;
     }
     size_t len = 0;
-    const char *buff = lua_tolstring(luaState, 4, &len);
-    char *newstr = new char[len];
-    memcpy(newstr, buff, len);
+    const char *text = lua_tolstring(luaState, 4, &len);
     //处理
     Service* srv = GetCurrentService(luaState);
     auto msg = make_shared<ServiceMsg>();
     msg->type = type;
     msg->source = srv ? srv->id : 0;
     msg->session = session;
-    msg->buff = shared_ptr<char>(newstr);
-    msg->size = len;
+    msg->buff.assign(text, len);
     Starnet::inst->Send(toId, msg);
     //返回值
     //（无）
@@ -238,10 +229,11 @@ int LuaAPI::Write(lua_State *luaState){
     size_t len = 0;
     const char *buff = lua_tolstring(luaState, 2, &len);
     //拷贝缓冲（Lua字符串内存可能被GC回收）
+    //注意：new char[] 必须配数组 deleter，否则 delete 释放数组是 UB
     char *newstr = new char[len];
     memcpy(newstr, buff, len);
     //处理（走SocketIO引擎写缓冲）
-    int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr), len);
+    int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr, std::default_delete<char[]>()), len);
     //返回值
     lua_pushinteger(luaState, r);
     return 1;

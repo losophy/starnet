@@ -136,13 +136,13 @@ void Service::OnServiceMsg(shared_ptr<ServiceMsg> msg) {
     lua_pushinteger(luaState, msg->type);
     lua_pushinteger(luaState, msg->session);
     lua_pushinteger(luaState, msg->source);
-    if(msg->buff && msg->size > 0) {
-        lua_pushlstring(luaState, msg->buff.get(), msg->size);
+    if(!msg->buff.empty()) {
+        lua_pushlstring(luaState, msg->buff.data(), msg->buff.size());
     }
     else {
         lua_pushlstring(luaState, "", 0);
     }
-    lua_pushinteger(luaState, (int)msg->size);
+    lua_pushinteger(luaState, (int)msg->buff.size());
     CallStarnetLua("dispatch_message", 5);
 }
 

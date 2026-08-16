@@ -12,6 +12,7 @@ extern "C" {
 
 #define QUEUESIZE 1024
 #define HASHSIZE 4096
+#define MT_NAME "starnet.netpack.queue"
 
 struct netpack {
     int id;
@@ -27,13 +28,13 @@ struct uncomplete {
     int header;
 };
 
-//解析队列（userdata，由 starnet.lua 持有；满时丢弃最旧包，不扩容）
+//解析队列（userdata，由 starnet.lua 持有；满时自动扩容，对齐 skynet netpack_queue）
 struct queue {
     int cap;
     int head;
     int tail;
     struct uncomplete * hash[HASHSIZE];
-    struct netpack queue[QUEUESIZE];
+    struct netpack * queue;  //动态数组，初始 QUEUESIZE，满时翻倍扩容
 };
 
 static void
@@ -97,6 +98,27 @@ read_size(uint8_t * buffer) {
     return r;
 }
 
+//队列扩容（对齐 skynet expand_queue）：环形重排到新数组头部，head=0，cap=sz
+static void
+expand_queue(struct queue *q, int sz) {
+    struct netpack *nq = (struct netpack*)malloc(sizeof(struct netpack) * sz);
+    if (q->head > q->tail) {
+        //环形：先把 [head, cap) 拼到新头，再续 [0, tail]
+        int n = q->cap - q->head;
+        memcpy(nq, q->queue + q->head, sizeof(struct netpack) * n);
+        memcpy(nq + n, q->queue, sizeof(struct netpack) * (q->tail + 1));
+        q->tail = n + q->tail;
+    } else {
+        //线性（或空）：拷贝 [head, tail) 到新头
+        memcpy(nq, q->queue + q->head, sizeof(struct netpack) * (q->tail - q->head));
+        q->tail -= q->head;
+    }
+    free(q->queue);
+    q->queue = nq;
+    q->head = 0;
+    q->cap = sz;
+}
+
 //完整包入队列（more 场景，clone=1 拷贝一份）
 static void
 push_data(struct queue *q, int fd, void *buffer, int size, int clone) {
@@ -105,18 +127,19 @@ push_data(struct queue *q, int fd, void *buffer, int size, int clone) {
         memcpy(tmp, buffer, size);
         buffer = tmp;
     }
+    //队列满（tail 前进将撞上 head）则扩容，不丢数据
+    int next = q->tail + 1;
+    if (next >= q->cap)
+        next -= q->cap;
+    if (next == q->head) {
+        expand_queue(q, q->cap * 2);
+    }
     struct netpack *np = &q->queue[q->tail];
     if (++q->tail >= q->cap)
         q->tail -= q->cap;
     np->id = fd;
     np->buffer = buffer;
     np->size = size;
-    if (q->head == q->tail) {
-        //队列满：丢弃最旧包（简化，不扩容）
-        free(q->queue[q->head].buffer);
-        if (++q->head >= q->cap)
-            q->head = 0;
-    }
 }
 
 //处理剩余数据：完整包入队列，尾部半包存 uncomplete
@@ -238,8 +261,35 @@ static int
 lcreate(lua_State *L) {
     struct queue *q = (struct queue*)lua_newuserdatauv(L, sizeof(struct queue), 0);
     memset(q, 0, sizeof(*q));
+    q->queue = (struct netpack*)malloc(sizeof(struct netpack) * QUEUESIZE);
+    if (q->queue == NULL) {
+        return luaL_error(L, "out of memory in netpack.create");
+    }
     q->cap = QUEUESIZE;
+    luaL_setmetatable(L, MT_NAME);
     return 1;
+}
+
+//userdata 被 GC：释放未取包与半包链表
+static int
+lgc(lua_State *L) {
+    struct queue *q = (struct queue*)lua_touserdata(L, 1);
+    if (q == NULL) {
+        return 0;
+    }
+    int i;
+    for (i=0;i<HASHSIZE;i++) {
+        clear_list(q->hash[i]);
+    }
+    while (q->head != q->tail) {
+        struct netpack *np = &q->queue[q->head];
+        free(np->buffer);
+        if (++q->head >= q->cap) {
+            q->head = 0;
+        }
+    }
+    free(q->queue);
+    return 0;
 }
 
 //过滤一段字节流（对齐 skynet netpack.filter）
@@ -342,4 +392,9 @@ LuaNetpack::Register(lua_State *L) {
         { NULL, NULL }
     };
     luaL_newlib(L, libs);
+    //netpack_queue userdata 的 __gc（释放未取包与半包链表，对齐 skynet）
+    luaL_newmetatable(L, MT_NAME);
+    lua_pushcfunction(L, lgc);
+    lua_setfield(L, -2, "__gc");
+    lua_pop(L, 1);
 }
