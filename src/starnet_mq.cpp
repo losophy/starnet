@@ -132,12 +132,16 @@ void StarnetMQ::FinishDispatch(shared_ptr<Service> srv) {
     pthread_spin_unlock(&queueLock);
 }
 
-//清空队列（丢弃残留消息）
-void StarnetMQ::Clear() {
+//清空队列（丢弃残留消息，对齐 skynet_mq 的 message_drop）
+void StarnetMQ::Clear(std::function<void(shared_ptr<BaseMsg>)> dropFunc) {
     pthread_spin_lock(&queueLock);
     {
         while(!msgQueue.empty()) {
+            shared_ptr<BaseMsg> msg = msgQueue.front();
             msgQueue.pop();
+            if(dropFunc) {
+                dropFunc(msg);
+            }
         }
     }
     pthread_spin_unlock(&queueLock);

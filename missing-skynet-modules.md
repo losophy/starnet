@@ -9,7 +9,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | starnet 模块 | 对应 skynet 模块 | 备注 |
 |---|---|---|
 | `starnet_service.cpp` | `skynet_server.c` / `skynet_context` | 服务创建、消息分发（按类型） |
-| `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列 + `MQ_OVERLOAD` 告警（指数退避阈值） |
+| `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列 + `MQ_OVERLOAD` 告警（指数退避阈值）+ `Clear(dropFunc)` 丢弃通知 |
 | `StarnetStart::StartWorker` 的 weight 表 + `Worker::weight` | `skynet_start.c` weight[] + `skynet_context_message_dispatch` | weight 加权调度：`<0` 每轮 1 条，`>=0` 每轮 `队列长度>>weight` 条 |
 | `starnet_start.cpp/h`（`StarnetStart` 线程池+休眠唤醒）+ `starnet_worker.cpp` | `skynet_start.c` | 线程池管理、worker 线程 |
 | `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
@@ -99,13 +99,19 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **监视器** | `skynet_monitor.c` | ✅ 已补：`starnet_monitor.cpp/h`（每 worker 一个 monitor，处理消息前 trigger / 批后 check；monitor 线程每 5 秒检查，卡死打 `starnet_error` 告警） | 无 Lua `endless` 调试接口（告警为 C 侧输出，对齐 skynet 默认行为） |
 | **内存管理** | `malloc_hook.c` / `mem_info.c` | ✅ 已补：`starnet_mem.cpp/h`（进程 RSS 报告，对齐 `mem_info.c`） | 决策：内存统计用「进程 RSS」，不做全局 `operator new` 重载（详见下方说明） |
 | **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量） |
-| **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | 服务退出时队列消息直接丢 | 服务退出清理不安全 |
+| **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | ✅ 已补：服务退出丢弃残留消息时给发送方回 `PTYPE_ERROR`（对齐 `drop_message`）；Lua 侧 `call` 收到 ERROR 报错退出 | 决策：SocketMsg 不加 source 字段（详见下方说明）；队列内存随 Service 生命周期（`shared_ptr` 自管） |
 
 > **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：
 > 1. **对齐 skynet 实际做法**——skynet 的 `mem_info.c` 报告的就是进程 RSS（读 `/proc/self/status` 的 `VmRSS`），`skynet.mem()` 返回进程级内存，并非单服务统计；
 > 2. **RSS 即监控全景**——单进程框架下，进程内存 = 框架全部内存（starnet 服务为 Lua 脚本，Lua 内存也在进程内）；
 > 3. **不做全局 `operator new` 重载**——`malloc_hook` 的宏替换 `malloc/free` 在 C++ 不可行（统计不到 `new/delete` 与 std 容器）；C++ 等价物为全局 `operator new` 重载，侵入整个进程所有分配（含 std 库内部），须正确实现分配失败的 `bad_alloc` 异常语义与对齐处理，且**同样没有泄漏定位能力**，收益与风险不成比例；
 > 4. **泄漏排查用外部工具**（valgrind/heaptrack），非框架内模块职责。
+
+> **SocketMsg 为何不加 source 字段（丢弃通知只对 `ServiceMsg`）**：
+> 1. **skynet 的 socket 消息 `source` 恒为 0**——skynet 所有消息共用 `struct skynet_message`（C 语言结构统一，无继承），socket 消息也装进该结构，网络消息没有真实发送方，`skynet_socket.c` 的 `forward_message` 设 `message.source = 0`；
+> 2. 因此 skynet `drop_message` 对 socket 消息回 ERROR 是发给 handle 0 → `skynet_send` 查无此句柄**静默无效**——即网络消息被丢弃时本就无人收到通知；
+> 3. starnet 是 C++ 多态（`BaseMsg` 派生 `ServiceMsg`/`SocketMsg`），消息模型已由继承统一，**不需要给 SocketMsg 加恒 0 的 source 字段**（加两个死字段并不改变任何行为）；
+> 4. 行为等价：`ServiceMsg` 丢弃回 `PTYPE_ERROR` 通知发送方（对齐 skynet 有效路径），`SocketMsg` 无发送方语义直接跳过（对齐 skynet 实际效果）；消息内存全为智能指针自管，无泄漏。
 
 > **C 模块加载（`skynet_module`）为何不实施**：skynet 用 `dlopen` 按名加载 `.so`，是因为其「C 内核 + 可插拔 C 服务」架构——C 语言没有运行时按名分派机制，只能交给操作系统加载器的符号表。starnet 是 C++ 单体：
 > 1. **服务已是运行时加载**——`Service::OnInit` 按 `luaservice` 模板把 `?` 替换为类型名找 `<type>/init.lua`（等价于「模块查询 + snlua」），加新服务零重编译；
@@ -170,8 +176,8 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P1（灵魂）** | 2. Lua 协程 + Session RPC 层（`skynet.call/response/wakeup`） | P0 |
 | **P2（网络）** | 3. 网络封包层（长度头粘包处理 + per-conn 读缓冲）；accept 循环 | P1 |
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
-| **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表） | 无 |
+| **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
 | **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
 
-> 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、服务退出时清空未处理消息、`KillService` 与 worker 的并发安全。
+> 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）

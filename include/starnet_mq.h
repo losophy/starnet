@@ -1,6 +1,7 @@
 #pragma once
 #include <queue>
 #include <memory>
+#include <functional>
 #include <pthread.h>
 #include "starnet_msg.h"
 
@@ -29,8 +30,9 @@ public:
     bool TryEnterGlobal(shared_ptr<Service> srv);
     //Worker处理完一批消息后调用：队列非空则重新入全局队列，否则置inGlobal=false
     void FinishDispatch(shared_ptr<Service> srv);
-    //清空队列（丢弃残留消息，对齐 skynet_mq 的 message_drop）
-    void Clear();
+    //清空队列（丢弃残留消息，对齐 skynet_mq 的 message_drop / _drop_queue）
+    //每条消息先调 dropFunc 处理（如回 PTYPE_ERROR 通知发送方）再丢弃
+    void Clear(std::function<void(shared_ptr<BaseMsg>)> dropFunc);
     //读取并清零 overload 告警值（对齐 skynet_mq_overload：非 0 表示队列曾超载）
     int Overload();
     //当前队列消息数（对齐 skynet_mq_length，供 weight 调度）

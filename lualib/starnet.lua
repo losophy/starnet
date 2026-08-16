@@ -158,6 +158,15 @@ local function raw_dispatch_message(type, session, source, buff, sz)
         end
         return
     end
+    --错误通知：恢复等待的协程并使其失败（对齐 skynet.lua，call 收到 ERROR 报 "call failed"）
+    if type == PTYPE_ERROR then
+        local co = session_id_coroutine[session]
+        if co then
+            session_id_coroutine[session] = nil
+            suspend(co, coroutine_resume(co, false))
+        end
+        return
+    end
     --未知协议类型（对齐 skynet：未注册类型无回调，告警后丢弃）
     local p = proto[type]
     if p == nil then
