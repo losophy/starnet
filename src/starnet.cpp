@@ -25,12 +25,11 @@ void Starnet::Start() {
     signal(SIGPIPE, SIG_IGN);
     //锁
     pthread_rwlock_init(&servicesLock, NULL);
-    assert(pthread_rwlock_init(&connsLock, NULL)==0);
     starnet_globalmq_init();
     //开启系统线程池
     start = new StarnetStart();
     start->Start();
-    socketWorker = start->GetSocketWorker();
+    socketServer = start->GetSocketServer();
 }
 
 //等待
@@ -115,43 +114,19 @@ shared_ptr<BaseMsg> Starnet::MakeMsg(uint32_t source, char* buff, int len) {
     return msg;
 }
 
-//添加连接
+//添加连接（转发到SocketIO引擎）
 int Starnet::AddConn(int fd, uint32_t id, Conn::TYPE type) {
-    auto conn = make_shared<Conn>();
-    conn->fd = fd;
-    conn->serviceId = id;
-    conn->type = type;
-    pthread_rwlock_wrlock(&connsLock);
-    {
-        conns.emplace(fd, conn);
-    }
-    pthread_rwlock_unlock(&connsLock);
-    return fd;
+    return socketServer->AddConn(fd, id, type);
 }
 
-//由id查找连接
+//由id查找连接（转发到SocketIO引擎）
 shared_ptr<Conn> Starnet::GetConn(int fd) {
-    shared_ptr<Conn> conn = NULL;
-    pthread_rwlock_rdlock(&connsLock);
-    {
-        unordered_map<uint32_t, shared_ptr<Conn>>::iterator iter = conns.find (fd);
-        if (iter != conns.end()){
-            conn = iter->second;
-        }
-    }
-    pthread_rwlock_unlock(&connsLock);
-    return conn;
+    return socketServer->GetConn(fd);
 }
 
-//删除连接
+//删除连接（转发到SocketIO引擎）
 bool Starnet::RemoveConn(int fd) {
-    int result;
-    pthread_rwlock_wrlock(&connsLock);
-    {
-        result = conns.erase(fd);
-    }
-    pthread_rwlock_unlock(&connsLock);
-    return result == 1;
+    return socketServer->RemoveConn(fd);
 }
 
 int Starnet::Listen(uint32_t port, uint32_t serviceId) {
@@ -181,7 +156,7 @@ int Starnet::Listen(uint32_t port, uint32_t serviceId) {
     //添加到管理结构
     AddConn(listenFd, serviceId, Conn::TYPE::LISTEN);
     //Epoll事件（跨线程）
-    socketWorker->AddEvent(listenFd);
+    socketServer->AddEvent(listenFd);
     return listenFd;
 }
 
@@ -193,10 +168,10 @@ void Starnet::CloseConn(uint32_t fd) {
     close(fd);
     //Epoll事件（跨线程）
     if(succ) {
-        socketWorker->RemoveEvent(fd);
+        socketServer->RemoveEvent(fd);
     }
 }
 
 void Starnet::ModifyEvent(int fd, bool epollOut) {
-    socketWorker->ModifyEvent(fd, epollOut);
+    socketServer->ModifyEvent(fd, epollOut);
 }

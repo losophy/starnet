@@ -1,6 +1,7 @@
 #include "starnet_start.h"
 #include "starnet_worker.h"
-#include "starnet_socketworker.h"
+#include "starnet_socket_server.h"
+#include "starnet_socket.h"
 #include "starnet_mq.h"
 #include <iostream>
 
@@ -31,12 +32,15 @@ void StarnetStart::StartWorker() {
 
 //开启Socket线程
 void StarnetStart::StartSocket() {
-    //创建线程对象
-    socketWorker = new SocketWorker();
+    //创建网络IO引擎
+    socketServer = new SocketServer();
     //初始化
-    socketWorker->Init();
+    socketServer->Init();
+    //创建桥接层并接线
+    socketBridge = new SocketBridge();
+    socketServer->SetListener(socketBridge);
     //创建线程
-    socketThread = new thread(*socketWorker);
+    socketThread = new thread(*socketServer);
 }
 
 //开启系统线程池
@@ -76,6 +80,6 @@ void StarnetStart::CheckAndWeakUp(){
 }
 
 //获取Socket线程对象
-SocketWorker* StarnetStart::GetSocketWorker() {
-    return socketWorker;
+SocketServer* StarnetStart::GetSocketServer() {
+    return socketServer;
 }

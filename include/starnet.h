@@ -1,7 +1,7 @@
 #pragma once
 #include "starnet_service.h"
 #include <unordered_map>
-#include "starnet_socketworker.h"
+#include "starnet_socket_server.h"
 #include "starnet_conn.h"
 
 class StarnetStart;
@@ -36,15 +36,12 @@ public:
 private:
     //线程池管理（对齐 skynet_start.c）
     StarnetStart* start;
-    //Socket线程对象（事件接口使用，创建归start）
-    SocketWorker* socketWorker;
+    //SocketIO引擎（事件接口使用，创建归start）
+    SocketServer* socketServer;
     //服务列表
     unordered_map<uint32_t, shared_ptr<Service>> services;
     uint32_t maxId = 0;              //最大ID
     pthread_rwlock_t servicesLock;   //读写锁
-    //Conn列表
-    unordered_map<uint32_t, shared_ptr<Conn>> conns;
-    pthread_rwlock_t connsLock;   //读写锁
 
 private:
     //获取服务

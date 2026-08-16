@@ -11,7 +11,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_service.cpp` | `skynet_server.c` / `skynet_context` | 服务创建、消息分发（按类型） |
 | `starnet_mq.cpp/h`（`StarnetMQ` 二级队列 + `starnet_globalmq_*` 全局队列） | `skynet_mq.c` | 二级 + 全局消息队列（极简版） |
 | `starnet_start.cpp/h`（`StarnetStart` 线程池+休眠唤醒）+ `starnet_worker.cpp` | `skynet_start.c` | 线程池管理、worker 线程 |
-| `starnet_socketworker.cpp`（epoll） | `skynet_socket.c` + `socket_server.c` | 网络线程（极简版） |
+| `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版） |
 | `starnet_connwriter.cpp` | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `starnet_luaapi.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
 | `service/main、chat、ping` | `examples/` + `service/` | 示例服务 |
@@ -46,7 +46,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - **功能**：
   - netpack filter 处理 TCP 粘包/半包，按 2 字节长度头解析完整数据包。
   - `socket_server.c` 每个连接有独立读缓冲，边读边解析。
-- **starnet 现状**：`starnet_socketworker.cpp::OnRW` 按 512 字节裸读后直接塞给 Lua；无长度头封包、无粘包半包累积，`chat` 服务收到的是碎片数据。
+- **starnet 现状**：`starnet_socket_server.cpp::OnRW` 按 512 字节裸读后直接塞给 Lua；无长度头封包、无粘包半包累积，`chat` 服务收到的是碎片数据。
 - **影响**：无法实现网关、无法传输结构化二进制协议。
 
 ### 4. 协议类型分发体系
@@ -88,7 +88,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - **绑定已有 fd**：`skynet_socket_bind`。
 - **写缓冲优先级**：`sendbuffer_lowpriority`（starnet 单队列）。
 - **连接控制**：`nodelay / pause / start / shutdown`。
-- **accept 细节**：starnet `OnAccept` 只 accept 一次，ET 模式应循环到 EAGAIN。
+- **accept 细节**：starnet `SocketServer::OnAccept` 只 accept 一次，ET 模式应循环到 EAGAIN。
 - **读缓冲**：starnet 无 per-conn 读缓冲累积。
 
 ### 集群 / 分布式
@@ -139,4 +139,4 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | P3 |
 | **P6（高级）** | 7. 监视器、集群（harbor/cluster）、UDP/connect、标准服务集、lualib | P4 |
 
-> 补充：starnet 现有实现还需对齐的简化点——`OnAccept` 循环 accept、服务退出时清空未处理消息、`KillService` 与 worker 的并发安全。
+> 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、服务退出时清空未处理消息、`KillService` 与 worker 的并发安全。

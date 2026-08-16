@@ -6,7 +6,8 @@
 using namespace std;
 
 class Worker;
-class SocketWorker;
+class SocketServer;
+class SocketBridge;
 
 //系统线程池管理（对齐 skynet_start.c：thread_worker/thread_socket + monitor 休眠唤醒）
 class StarnetStart {
@@ -22,14 +23,15 @@ public:
     //检查并唤醒线程
     void CheckAndWeakUp();
     //获取Socket线程对象
-    SocketWorker* GetSocketWorker();
+    SocketServer* GetSocketServer();
 private:
     //工作线程
     int WORKER_NUM = 3;              //工作线程数（配置）
     vector<Worker*> workers;         //worker对象
     vector<thread*> workerThreads;   //线程
     //Socket线程
-    SocketWorker* socketWorker;
+    SocketServer* socketServer;
+    SocketBridge* socketBridge;
     thread* socketThread;
     //休眠和唤醒
     pthread_mutex_t sleepMtx;
