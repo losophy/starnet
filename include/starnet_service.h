@@ -1,8 +1,8 @@
 #pragma once
 #include <queue>
 #include <thread>
-#include "Msg.h"
-#include "ConnWriter.h"
+#include "starnet_msg.h"
+#include "starnet_connwriter.h"
 #include <unordered_map>
 
 extern "C"  {  

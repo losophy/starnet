@@ -2,7 +2,7 @@
 using namespace std;
 #include <sys/epoll.h>
 #include <memory>
-#include "Conn.h"
+#include "starnet_conn.h"
 
 class SocketWorker { 
 private:

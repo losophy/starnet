@@ -1,10 +1,10 @@
 #pragma once
 #include <vector>
-#include "Worker.h"
-#include "Service.h"
+#include "starnet_worker.h"
+#include "starnet_service.h"
 #include <unordered_map>
-#include "SocketWorker.h"
-#include "Conn.h"
+#include "starnet_socketworker.h"
+#include "starnet_conn.h"
 
 class Worker;
 

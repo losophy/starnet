@@ -1,7 +1,7 @@
 #include <iostream>
 #include <unistd.h>
-#include "Worker.h"
-#include "Service.h"
+#include "starnet_worker.h"
+#include "starnet_service.h"
 using namespace std;
 
 //那些调Starnet的通过传参数解决

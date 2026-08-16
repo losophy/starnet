@@ -1,7 +1,7 @@
 #pragma once
 #include <thread> 
-#include "Starnet.h"
-#include "Service.h"
+#include "starnet.h"
+#include "starnet_service.h"
 class Starnet;
 
 using namespace std;

@@ -1,9 +1,9 @@
-#include "Service.h"
-#include "Starnet.h"
+#include "starnet_service.h"
+#include "starnet.h"
 #include <iostream>
 #include <unistd.h>
 #include <string.h>
-#include "LuaAPI.h"
+#include "starnet_luaapi.h"
 
 //构造函数
 Service::Service() {

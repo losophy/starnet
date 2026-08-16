@@ -1,4 +1,4 @@
-#include "Starnet.h"
+#include "starnet.h"
 #include <iostream>
 #include <assert.h>
 

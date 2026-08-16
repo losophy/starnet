@@ -1,7 +1,7 @@
 
-#include "ConnWriter.h"
+#include "starnet_connwriter.h"
 #include <unistd.h>
-#include <Starnet.h>
+#include "starnet.h">
 #include <iostream>
 #include <string.h>
 #include <sys/socket.h>

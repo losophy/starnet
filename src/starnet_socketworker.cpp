@@ -1,10 +1,10 @@
-#include "SocketWorker.h"
+#include "starnet_socketworker.h"
 #include <iostream>
 #include <unistd.h>
 #include <assert.h>
 #include <string.h>
 
-#include <Starnet.h>
+#include "starnet.h"
 #include <fcntl.h>
 #include <sys/socket.h>
 

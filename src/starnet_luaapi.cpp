@@ -1,6 +1,6 @@
-#include "LuaAPI.h"
+#include "starnet_luaapi.h"
 #include "stdint.h"
-#include "Starnet.h"
+#include "starnet.h"
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
