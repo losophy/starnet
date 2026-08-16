@@ -83,6 +83,7 @@ end)
 | `starnet.Listen(port, id)` / `starnet.Write(fd, buff)` / `starnet.CloseConn(fd)` | socket 操作（回退到 C 绑定） | `skynet.socket` |
 | `starnet.udp(addr, port)` / `starnet.udp_connect(addr, port)` / `starnet.send_udp(fd, msg, addr, port)` | UDP：监听 / 连接（默认对端）/ 发送（addr 空用默认对端） | `skynet.udp` / `skynet.udp_connect` / `skynet.send_udp` |
 | `starnet.connect(host, port)` | 主动连接（非阻塞）：返回 fd；成功 `dispatch("connect", fd, ip)`，失败 `dispatch("error", fd, err)` | `skynet.socket.connect` |
+| `starnet.bind(fd)` | 绑定已有 fd（接管外部创建的 socket，类型自动识别，引擎不负责 close） | `skynet.socket.bind` |
 | `starnet.PTYPE_*` | 协议类型常量（TEXT/RESPONSE/SOCKET/LUA…，对齐 `skynet.h`） | `skynet.PTYPE_*` |
 
 socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket`(fd, msg)、`close`(fd)、`udp`(fd, msg, addr, port)、`connect`(fd, ip)、`error`(fd, err)。其中 `socket` 回调收到的是**完整数据包**——TCP 粘包/半包由 `netpack` 自动解析（2 字节大端长度头，对齐 skynet）；发送方需用 `starnet.pack(msg)` 加长度头；`udp` 报式无粘包，直接收完整报文：

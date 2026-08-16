@@ -59,6 +59,8 @@ public:
     int SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len);
     //主动连接（对齐 skynet socket_server_connect：非阻塞 connect，完成投 CONNECT，失败投 ERROR）
     int Connect(uint32_t serviceId, const char* host, int port);
+    //绑定已有 fd（对齐 skynet socket_server_bind：接管外部创建的 socket，引擎不负责 close）
+    int Bind(uint32_t serviceId, int fd);
 private:
     void OnEvent(epoll_event ev);
     void OnAccept(shared_ptr<Conn> conn);

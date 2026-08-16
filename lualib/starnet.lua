@@ -379,6 +379,11 @@ function starnet.connect(addr, port)
     return c.connect(addr, port)
 end
 
+--绑定已有 fd（对齐 skynet.socket.bind：接管外部创建的 socket，引擎不负责 close；类型自动识别，数据走 dispatch("socket"/"udp")）
+function starnet.bind(fd)
+    return c.bind(fd)
+end
+
 --写日志（对齐 skynet.log：走统一日志器，时间戳 + 落盘/stderr）
 function starnet.log(...)
     c.log(...)

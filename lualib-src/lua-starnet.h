@@ -27,6 +27,9 @@ public:
     //主动连接（对齐 skynet c.connect）
     static int Connect(lua_State *luaState);
 
+    //绑定已有 fd（对齐 skynet c.bind）
+    static int Bind(lua_State *luaState);
+
     //UDP（对齐 skynet c.udp / c.udp_connect / c.send_udp）
     static int Udp(lua_State *luaState);
     static int SetUdpAddress(lua_State *luaState);

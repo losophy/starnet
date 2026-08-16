@@ -219,10 +219,18 @@ int Starnet::Listen(uint32_t port, uint32_t serviceId) {
 
 
 void Starnet::CloseConn(uint32_t fd) {
+    //绑定已有 fd：所有权在外部，引擎不负责 close（只摘除托管）
+    bool isBind = false;
+    auto conn = socketServer->GetConn(fd);
+    if(conn) {
+        isBind = conn->isBind;
+    }
     //删除管理结构
     bool succ = RemoveConn(fd);
     //关闭
-    close(fd);
+    if(!isBind) {
+        close(fd);
+    }
     //Epoll事件（跨线程）
     if(succ) {
         socketServer->RemoveEvent(fd);
@@ -256,4 +264,9 @@ int Starnet::SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, 
 //主动连接（对齐 skynet socket_server_connect）
 int Starnet::Connect(uint32_t serviceId, const char* host, int port) {
     return socketServer->Connect(serviceId, host, port);
+}
+
+//绑定已有 fd（对齐 skynet socket_server_bind：接管外部创建的 socket，引擎不负责 close）
+int Starnet::Bind(uint32_t serviceId, int fd) {
+    return socketServer->Bind(serviceId, fd);
 }

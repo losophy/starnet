@@ -52,6 +52,8 @@ public:
     int SendUdp(int fd, const char* addr, int port, shared_ptr<char> buff, size_t len);
     //主动连接（对齐 skynet socket_server_connect）
     int Connect(uint32_t serviceId, const char* host, int port);
+    //绑定已有 fd（对齐 skynet socket_server_bind）
+    int Bind(uint32_t serviceId, int fd);
     //对外Event接口
     void ModifyEvent(int fd, bool epollOut);
 private:

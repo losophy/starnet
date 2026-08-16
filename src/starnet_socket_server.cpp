@@ -256,7 +256,10 @@ void SocketServer::NotifyClose(shared_ptr<Conn> conn) {
         listener->OnSocketMsg(msg, conn->serviceId);
     }
     RemoveConn(conn->fd);
-    close(conn->fd);
+    //绑定已有 fd：所有权在外部，引擎不负责 close（对齐 skynet force_close type!=BIND 才 close）
+    if(!conn->isBind) {
+        close(conn->fd);
+    }
     RemoveEvent(conn->fd);
 }
 
@@ -534,8 +537,12 @@ void SocketServer::LingerClose(int fd) {
         auto iter = writeBuffers.find(fd);
         if(iter == writeBuffers.end()) {
             pthread_spin_unlock(&writeBuffersLock);
+            //绑定已有 fd：所有权在外部，引擎不负责 close
+            auto conn = GetConn(fd);
             RemoveConn(fd);
-            close(fd);
+            if(!conn || !conn->isBind) {
+                close(fd);
+            }
             RemoveEvent(fd);
             return;
         }
@@ -555,8 +562,12 @@ void SocketServer::LingerClose(int fd) {
     pthread_spin_unlock(&writeBuffersLock);
     //解锁后再关闭，避免锁内调用RemoveConn（其内部会加writeBuffersLock）
     if(empty) {
+        //绑定已有 fd：所有权在外部，引擎不负责 close
+        auto conn = GetConn(fd);
         RemoveConn(fd);
-        close(fd);
+        if(!conn || !conn->isBind) {
+            close(fd);
+        }
         RemoveEvent(fd);
     }
 }
@@ -734,5 +745,35 @@ int SocketServer::Connect(uint32_t serviceId, const char* host, int port) {
         ModifyEvent(fd, true);
     }
     freeaddrinfo(res);
+    return fd;
+}
+
+//绑定已有 fd（对齐 skynet socket_server_bind：接管外部创建的 socket，引擎只管事件不负责 close）
+int SocketServer::Bind(uint32_t serviceId, int fd) {
+    //校验：fd 有效且未被托管
+    int flags = fcntl(fd, F_GETFL);
+    if(flags < 0) {
+        starnet_error("Bind invalid fd, fd=%d", fd);
+        return -1;
+    }
+    if(GetConn(fd) != NULL) {
+        starnet_error("Bind fd already managed, fd=%d", fd);
+        return -1;
+    }
+    //强制非阻塞（对齐 skynet sp_nonblocking，引擎用 ET 非阻塞读）
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+    //识别类型：getsockopt(SO_TYPE) 自动区分 TCP/UDP
+    Conn::TYPE type = Conn::TYPE::CLIENT;
+    int socktype = 0;
+    socklen_t len = sizeof(socktype);
+    if(getsockopt(fd, SOL_SOCKET, SO_TYPE, &socktype, &len) == 0 && socktype == SOCK_DGRAM) {
+        type = Conn::TYPE::UDP;
+    }
+    AddConn(fd, serviceId, type);
+    auto conn = GetConn(fd);
+    if(conn) {
+        conn->isBind = true;
+    }
+    AddEvent(fd);
     return fd;
 }
