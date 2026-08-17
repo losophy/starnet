@@ -189,23 +189,40 @@ void SocketServer::OnConnectFinish(shared_ptr<Conn> conn) {
 }
 
 //TCP 可读：循环 read 到读完/EAGAIN，每块投递一条 DATA 消息
+//动态读缓冲（对齐 skynet forward_message_tcp）：读满（len==readSize）缓冲翻倍继续读（内核可能还有数据），读不满缓冲减半回落
+static const size_t READ_BUFFER_MIN = 8192;
+static const size_t READ_BUFFER_MAX = (1 << 20);  //1MB，防异常大包
 void SocketServer::ReadData(shared_ptr<Conn> conn) {
-    const int BUFFSIZE = 8192;
-    char buff[BUFFSIZE];
     int fd = conn->fd;
     for(;;) {
-        int len = read(fd, buff, BUFFSIZE);
+        //确保缓冲容量 >= readSize（只增不减：缩小只改 readSize，复用大缓冲）
+        if(conn->readBuffCap < conn->readSize) {
+            conn->readBuff.reset(new char[conn->readSize]);
+            conn->readBuffCap = conn->readSize;
+        }
+        size_t sz = conn->readSize;
+        int len = read(fd, conn->readBuff.get(), sz);
         if(len > 0) {
             auto msg = make_shared<SocketMsg>();
             msg->type = BaseMsg::TYPE::SOCKET;
             msg->subtype = SocketMsg::SUBTYPE::DATA;
             msg->fd = fd;
-            msg->buff.assign(buff, len);
+            msg->buff.assign(conn->readBuff.get(), len);
             if(listener) {
                 listener->OnSocketMsg(msg, conn->serviceId);
             }
-            //内核已读空则停止（ET 下剩余数据会再次触发 EPOLLIN）
-            if(len < BUFFSIZE) {
+            //读满：内核可能还有数据，缓冲翻倍继续读（上限 READ_BUFFER_MAX）
+            if((size_t)len == sz) {
+                if(conn->readSize < READ_BUFFER_MAX) {
+                    size_t next = conn->readSize * 2;
+                    conn->readSize = next > READ_BUFFER_MAX ? READ_BUFFER_MAX : next;
+                }
+            }
+            //读不满：本次事件已读完；缓冲过大则减半回落（下限 READ_BUFFER_MIN）
+            else {
+                if(conn->readSize > READ_BUFFER_MIN && (size_t)len * 2 < conn->readSize) {
+                    conn->readSize /= 2;
+                }
                 break;
             }
         }
