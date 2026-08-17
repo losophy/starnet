@@ -425,10 +425,11 @@ void SocketServer::EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<
     //情况1-2：写一部分（或没写入）
     if( (n > 0 && n < (int)len) || (n < 0 && errno == EAGAIN) ) {
         auto obj = make_shared<WriteObject>();
-        obj->start = n;
+        obj->start = n > 0 ? n : 0;  //EAGAIN 时未写入任何字节（修正 start 负值越界）
         obj->buff = buff;
         obj->len = len;
         wb.objs.push_back(obj);
+        wb.wbSize += len - (n > 0 ? n : 0);  //剩余部分入队，累加积压字节
         //请求EPOLLOUT（引擎内部）
         ModifyEvent(fd, true);
         return;
@@ -448,10 +449,14 @@ void SocketServer::EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char>
     } else {
         wb.objs.push_back(obj);
     }
+    wb.wbSize += len;  //入队，累加积压字节
 }
 
+//写缓冲积压告警阈值（对齐 skynet WARNING_SIZE=1MB）：wbSize 超限即投 SOCKET_WARNING 给服务，阈值翻倍渐进告警
+static const size_t WARNING_SIZE = (1 << 20);
+
 //返回值:1=完整的写入了一条，0=部分写或EAGAIN（数据留在队头），-1=错误
-int SocketServer::WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst) {
+int SocketServer::WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst, size_t& written) {
     //没待写数据
     if(lst.empty()) {
         return 0;
@@ -466,12 +471,16 @@ int SocketServer::WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst)
     if(n < 0 && errno == EINTR) { }; //仅提醒你要注意
     //情况1-1：全部写完
     if(n >= 0 && n == len) {
+        written += len; //本次写入 len，供 wbSize 扣减
         lst.pop_front(); //出队
         return 1;
     }
     //情况1-2：写一部分（或没写入）
     if( (n > 0 && n < len) || (n < 0 && errno == EAGAIN) ) {
-        obj->start += n;
+        if(n > 0) {
+            written += n; //本次写入 n，供 wbSize 扣减
+            obj->start += n;
+        }
         return 0;
     }
     //情况1-3：真的发生错误
@@ -480,11 +489,14 @@ int SocketServer::WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst)
 }
 
 //（写缓冲）发送缓冲（worker线程调用；low=true 走低优先级队列）
-//对齐 skynet send_socket：缓冲空时即使 LOW 也进 high（空缓冲直写，写不完的部分进 high）
+//对齐 skynet send_socket：缓冲空时即使 LOW 也进 high（空缓冲直写，写不完的部分进 high）；积压超限投 SOCKET_WARNING
 int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len, bool low) {
-    if(GetConn(fd) == NULL) {
+    auto conn = GetConn(fd);
+    if(conn == NULL) {
         return -1;
     }
+    bool needWarn = false;
+    int warnKb = 0;
     pthread_spin_lock(&writeBuffersLock);
     {
         ConnWriteBuffer& wb = writeBuffers[fd];
@@ -503,10 +515,27 @@ int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len, bool low
             else {
                 EntireWriteWhenNotEmpty(wb, buff, len, low);
             }
+            //积压告警（对齐 skynet send_socket：wb_size >= WARNING_SIZE 且 >= warn_size 时投一次，阈值翻倍渐进）
+            if(wb.wbSize >= WARNING_SIZE && wb.wbSize >= wb.warnSize) {
+                wb.warnSize = wb.warnSize == 0 ? WARNING_SIZE * 2 : wb.warnSize * 2;
+                warnKb = (int)((wb.wbSize + 1023) / 1024);  //向上取整 KB
+                needWarn = true;
+            }
         }
         pthread_spin_unlock(&wb.lock);
     }
     pthread_spin_unlock(&writeBuffersLock);
+    //解锁后投递告警（对齐 skynet dispatch("warning", fd, kb)）
+    if(needWarn) {
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::WARNING;
+        msg->fd = fd;
+        msg->size = warnKb;
+        if(listener) {
+            listener->OnSocketMsg(msg, conn->serviceId);
+        }
+    }
     return 0;
 }
 
@@ -520,6 +549,7 @@ void SocketServer::OnWriteable(int fd) {
 
     bool needNotify = false;
     bool emptied = false;
+    size_t written = 0;  //本次刷出字节数（供 wbSize 扣减）
     pthread_spin_lock(&writeBuffersLock);
     {
         auto iter = writeBuffers.find(fd);
@@ -528,12 +558,12 @@ void SocketServer::OnWriteable(int fd) {
             pthread_spin_lock(&wb.lock);
             {
                 //step1：刷 high（objs）发到空
-                while(WriteFrontFromList(fd, wb.objs) == 1) {
+                while(WriteFrontFromList(fd, wb.objs, written) == 1) {
                     //循环
                 }
                 //step2：high 空，刷 low
                 if(wb.objs.empty() && !wb.low.empty()) {
-                    while(WriteFrontFromList(fd, wb.low) == 1) {
+                    while(WriteFrontFromList(fd, wb.low, written) == 1) {
                         //循环
                     }
                     //step3：low 头未完整写完（部分写或 EAGAIN），挪到 high 尾继续
@@ -543,6 +573,10 @@ void SocketServer::OnWriteable(int fd) {
                         wb.low.pop_front();
                         wb.objs.push_back(obj);
                     }
+                }
+                //扣减积压字节（刷出多少扣多少）
+                if(written > 0) {
+                    wb.wbSize -= written > wb.wbSize ? wb.wbSize : written;
                 }
                 //step4：都空
                 if(wb.objs.empty() && wb.low.empty()) {

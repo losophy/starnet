@@ -22,6 +22,8 @@ struct ConnWriteBuffer {
     list<shared_ptr<WriteObject>> objs;
     list<shared_ptr<WriteObject>> low;
     bool isClosing = false;
+    size_t wbSize = 0;   //当前积压字节数（send 入队累加、刷出扣减，对齐 skynet socket 的 wb_size）
+    size_t warnSize = 0; //下次告警阈值（触发后翻倍，对齐 skynet socket 的 warn_size）
     pthread_spinlock_t lock;
     ConnWriteBuffer() {
         pthread_spin_init(&lock, 0);
@@ -80,8 +82,8 @@ private:
     //写缓冲内部
     void EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);
     void EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len, bool low);
-    //刷写指定队列（返回：1=完整写完一条，0=部分写或EAGAIN，-1=错误）
-    int WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst);
+    //刷写指定队列（written 累加本次实际写入字节数，供 wbSize 扣减；返回：1=完整写完一条，0=部分写或EAGAIN，-1=错误）
+    int WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst, size_t& written);
 private:
     //epoll描述符
     int epollFd;

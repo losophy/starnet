@@ -43,10 +43,12 @@ public:
         ACCEPT = 4,         // SKYNET_SOCKET_TYPE_ACCEPT
         ERROR = 5,          // SKYNET_SOCKET_TYPE_ERROR（连接失败等错误，buff 为错误描述）
         UDP = 6,            // SKYNET_SOCKET_TYPE_UDP（UDP 数据报，报式无粘包）
+        WARNING = 7,        // SKYNET_SOCKET_TYPE_WARNING（写缓冲积压告警，size 为积压 KB，对齐 skynet send_socket）
     };
     int subtype;            //socket 子类型（SUBTYPE）
     int fd;                 //连接 fd
     int listenFd;           //ACCEPT 时监听的 fd
+    int size = 0;           //WARNING 时积压字节数（KB，向上取整，对齐 skynet result->ud）
     string buff;            //DATA/UDP 数据（socket 线程已读出，worker 直接用）
     string udpAddr;         //UDP 对端地址（二进制打包：1 字节 family + 2 字节端口 + 4/16 字节 IP，对齐 skynet gen_udp_address）
 };

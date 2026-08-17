@@ -229,6 +229,15 @@ void Service::OnSocketMsg(shared_ptr<SocketMsg> msg) {
         CallStarnetLua("dispatch_socket", 4);
         return;
     }
+    //写缓冲积压告警（对齐 skynet dispatch("warning", fd, kb)：对端慢/掉线不关时积压超限，供服务踢连接）
+    if(msg->subtype == SocketMsg::SUBTYPE::WARNING) {
+        lua_pushinteger(luaState, SocketMsg::SUBTYPE::WARNING);
+        lua_pushinteger(luaState, msg->fd);
+        lua_pushinteger(luaState, msg->size);
+        lua_pushnil(luaState);
+        CallStarnetLua("dispatch_socket", 4);
+        return;
+    }
     //UDP 数据报（报式无粘包，解析对端地址后分发，对齐 skynet.dispatch("udp", fd, msg, addr, port)）
     if(msg->subtype == SocketMsg::SUBTYPE::UDP) {
         string ip;

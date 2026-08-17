@@ -44,6 +44,7 @@ local SKYNET_SOCKET_TYPE_CLOSE = 3
 local SKYNET_SOCKET_TYPE_ACCEPT = 4
 local SKYNET_SOCKET_TYPE_ERROR = 5
 local SKYNET_SOCKET_TYPE_UDP = 6
+local SKYNET_SOCKET_TYPE_WARNING = 7
 
 local starnet = {}
 
@@ -92,6 +93,7 @@ starnet.register_protocol({ name = "close", pack = pack_string, unpack = unpack_
 starnet.register_protocol({ name = "udp", pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "connect", pack = pack_string, unpack = unpack_string })
 starnet.register_protocol({ name = "error", pack = pack_string, unpack = unpack_string })
+starnet.register_protocol({ name = "warning", pack = pack_string, unpack = unpack_string })
 
 --协程池
 local coroutine_pool = {}
@@ -267,6 +269,12 @@ function starnet.dispatch_socket(subtype, a, b, c, d)
                     break
                 end
             end
+        end
+    elseif subtype == SKYNET_SOCKET_TYPE_WARNING then
+        --写缓冲积压告警（对齐 skynet dispatch("warning", fd, kb)）
+        local p = proto["warning"]
+        if p and p.dispatch then
+            dispatch_in_coroutine(p.dispatch, a, b)  -- func(fd, kb)
         end
     elseif subtype == SKYNET_SOCKET_TYPE_UDP then
         --UDP 数据报：报式无粘包，直接分发（对齐 skynet dispatch("udp", fd, msg, addr, port)）
