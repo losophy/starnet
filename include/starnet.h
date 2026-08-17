@@ -25,6 +25,10 @@ public:
     //增删服务
     uint32_t NewService(shared_ptr<string> type);
     void KillService(uint32_t id);     //异步退休（跨线程安全）
+    //优雅全局退出（对齐 skynet_globalexit / skynet_context_dispatchall）
+    void RequestExit();                //请求退出（信号 / starnet.globalexit 触发）
+    bool IsExitRequested();            //是否已请求退出（Wait 轮询）
+    void KillAllServices();            //全部服务退休（OnExit + mq 清理，dispatchall 排空语义）
     //名字服务（对齐 skynet_handle_namehandle/findname）
     bool NameService(uint32_t handle, const char* name);
     uint32_t FindServiceByName(const char* name);

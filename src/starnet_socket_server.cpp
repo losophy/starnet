@@ -12,6 +12,9 @@
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <sys/eventfd.h>
+#include <vector>
+#include <stdint.h>
 
 using namespace std;
 
@@ -67,10 +70,31 @@ void SocketServer::Init() {
     //创建epoll
     epollFd = epoll_create(1024); // 返回值：非负数:成功的描述符，-1失败
     assert(epollFd > 0);
+    //创建退出唤醒 eventfd（优雅退出：epoll_wait 阻塞时写 eventfd 唤醒，对齐 skynet_socket_exit）
+    exitFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    assert(exitFd > 0);
+    struct epoll_event ev;
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.fd = exitFd;
+    epoll_ctl(epollFd, EPOLL_CTL_ADD, exitFd, &ev);
     //锁
     pthread_rwlock_init(&connsLock, NULL);
     pthread_spin_init(&writeBuffersLock, 0);
     listener = NULL;
+}
+
+//接入优雅退出标志（置位后唤醒 epoll + 收尾关闭全部连接）
+void SocketServer::SetExitFlag(std::atomic<bool>* flag) {
+    exitFlag = flag;
+}
+
+//唤醒 epoll_wait（优雅退出时主线程调用：写 eventfd 触发 EPOLLIN，使 epoll_wait(-1) 返回）
+void SocketServer::WakeUp() {
+    if(exitFd >= 0) {
+        uint64_t v = 1;
+        ssize_t r = write(exitFd, &v, sizeof(v));
+        (void)r;
+    }
 }
 
 //注册事件监听（桥接层）
@@ -300,6 +324,13 @@ void SocketServer::NotifyClose(shared_ptr<Conn> conn) {
 //处理事件
 void SocketServer::OnEvent(epoll_event ev){
     int fd = ev.data.fd;
+    //退出唤醒 eventfd：读清计数即可（仅用于唤醒，无实际事件）
+    if(fd == exitFd) {
+        uint64_t v;
+        ssize_t r = read(exitFd, &v, sizeof(v));
+        (void)r;
+        return;
+    }
     auto conn = GetConn(fd);
     if(conn == NULL){
         starnet_error("OnEvent error, conn == NULL, fd=%d", fd);
@@ -337,6 +368,34 @@ void SocketServer::operator()() {
         for (int i=0; i<eventCount; i++) {
             epoll_event ev = events[i]; //当前要处理的事件
             OnEvent(ev);
+        }
+        //优雅退出：标志置位（eventfd 已唤醒）→ 收尾关闭全部连接
+        if(exitFlag && exitFlag->load(std::memory_order_relaxed)) {
+            CloseAll();
+            break;
+        }
+    }
+}
+
+//优雅退出收尾：关闭全部连接（对齐 skynet socket_free；写缓冲不排空，
+//优雅停机由 Lua 服务在 OnExit 里自行 Shutdown/close）
+void SocketServer::CloseAll() {
+    vector<int> fds;
+    pthread_rwlock_rdlock(&connsLock);
+    {
+        for(auto& kv : conns) {
+            fds.push_back(kv.first);
+        }
+    }
+    pthread_rwlock_unlock(&connsLock);
+    for(int fd : fds) {
+        epoll_ctl(epollFd, EPOLL_CTL_DEL, fd, NULL);
+        //bind 已有 fd 所有权在外部：只摘托管不 close（对齐 CloseConn）
+        auto conn = GetConn(fd);
+        bool isBind = conn && conn->isBind;
+        RemoveConn(fd);
+        if(!isBind) {
+            close(fd);
         }
     }
 }

@@ -2,6 +2,7 @@
 #include <memory>
 #include <unordered_map>
 #include <list>
+#include <atomic>
 #include <pthread.h>
 #include <sys/epoll.h>
 #include "starnet_conn.h"
@@ -43,6 +44,10 @@ public:
     void operator()();  //线程函数
     //注册事件监听（桥接层）
     void SetListener(SocketServerListener* listener);
+    //接入优雅退出标志（置位后唤醒 epoll + 收尾关闭全部连接）
+    void SetExitFlag(std::atomic<bool>* flag);
+    //唤醒 epoll_wait（优雅退出时主线程写 eventfd，对齐 skynet_socket_exit）
+    void WakeUp();
     //增删查Conn
     int AddConn(int fd, uint32_t id, Conn::TYPE type);
     shared_ptr<Conn> GetConn(int fd);
@@ -79,6 +84,8 @@ private:
     void NotifyClose(shared_ptr<Conn> conn); //读 EOF/错误：通知 close + 清理
     //主动连接完成（EPOLLOUT 触发，getsockopt 检查结果，对齐 skynet report_connect）
     void OnConnectFinish(shared_ptr<Conn> conn);
+    //优雅退出收尾：关闭全部连接（对齐 skynet socket_free）
+    void CloseAll();
     //写缓冲内部
     void EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);
     void EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len, bool low);
@@ -87,6 +94,10 @@ private:
 private:
     //epoll描述符
     int epollFd;
+    //退出唤醒 eventfd（优雅退出：epoll_wait 阻塞时写 eventfd 唤醒）
+    int exitFd = -1;
+    //优雅退出标志（指向 StarnetStart::exitFlag）
+    std::atomic<bool>* exitFlag = NULL;
     //事件监听（桥接层）
     SocketServerListener* listener;
     //Conn列表

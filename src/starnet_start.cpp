@@ -5,6 +5,7 @@
 #include "starnet_timer.h"
 #include "starnet_mq.h"
 #include "starnet_logger.h"
+#include "starnet.h"
 #include <iostream>
 #include <unistd.h>
 
@@ -60,6 +61,8 @@ void StarnetStart::StartSocket() {
     socketServer = new SocketServer();
     //初始化
     socketServer->Init();
+    //接入退出标志（优雅退出：唤醒 epoll + 收尾关闭连接）
+    socketServer->SetExitFlag(&exitFlag);
     //创建桥接层并接线
     socketBridge = new SocketBridge();
     socketServer->SetListener(socketBridge);
@@ -68,8 +71,8 @@ void StarnetStart::StartSocket() {
 }
 
 //Timer线程驱动（对齐 skynet_start.c thread_timer：每2.5ms驱动一次）
-static void timerLoop() {
-    while(true) {
+void StarnetStart::TimerLoop() {
+    while(!IsExit()) {
         starnet_updatetime();
         usleep(2500);
     }
@@ -77,12 +80,12 @@ static void timerLoop() {
 
 //开启Timer线程
 void StarnetStart::StartTimer() {
-    timerThread = new thread(timerLoop);
+    timerThread = new thread(&StarnetStart::TimerLoop, this);
 }
 
 //开启监视器线程（对齐 skynet_start.c 的 monitor 线程：每 5 秒检查 worker 卡死）
 void StarnetStart::StartMonitor() {
-    monitorThread = new thread(starnet_monitor_run, monitors.data(), (int)monitors.size(), 5);
+    monitorThread = new thread(starnet_monitor_run, monitors.data(), (int)monitors.size(), 5, &exitFlag);
 }
 
 //开启系统线程池
@@ -97,11 +100,53 @@ void StarnetStart::Start() {
     StartMonitor();
 }
 
-//等待
+//等待运行（优雅全局退出：等待退出请求 → 排空服务 → 置标志唤醒 → join 全部线程）
 void StarnetStart::Wait() {
-    if( workerThreads[0]) {
-        workerThreads[0]->join();
+    //等待退出请求（SIGINT/SIGTERM 或 starnet.globalexit）
+    while(!Starnet::inst->IsExitRequested()) {
+        usleep(50000);
     }
+    //1. 全部服务退休：触发 OnExit/lua_close + 残留消息清理回 PTYPE_ERROR
+    //   （对齐 skynet_context_dispatchall 的排空语义；在置退出标志前执行，保证 worker 不会提前退出）
+    Starnet::inst->KillAllServices();
+    //2. 置退出标志 + 广播唤醒全部 worker（worker 处理完队列到空后退出）
+    SetExit();
+    WakeUpAll();
+    //3. 收尾全部线程（对齐 skynet_start.c：join worker + timer + socket + monitor）
+    for(auto* t : workerThreads) {
+        if(t) {
+            t->join();
+        }
+    }
+    if(timerThread) {
+        timerThread->join();
+    }
+    if(socketThread) {
+        socketThread->join();
+    }
+    if(monitorThread) {
+        monitorThread->join();
+    }
+}
+
+//优雅退出标志：worker/timer/monitor 轮询
+bool StarnetStart::IsExit() {
+    return exitFlag.load(std::memory_order_relaxed);
+}
+
+void StarnetStart::SetExit() {
+    exitFlag.store(true, std::memory_order_relaxed);
+    //唤醒 socket 线程（写 eventfd → epoll_wait 返回 → 收尾关闭连接）
+    if(socketServer) {
+        socketServer->WakeUp();
+    }
+}
+
+//唤醒全部休眠 worker（退出时广播，对齐 skynet_start.c 的 cond_broadcast）
+void StarnetStart::WakeUpAll() {
+    pthread_mutex_lock(&sleepMtx);
+    pthread_cond_broadcast(&sleepCond);
+    pthread_mutex_unlock(&sleepMtx);
 }
 
 //Worker线程调用，进入休眠

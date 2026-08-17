@@ -1,6 +1,7 @@
 #pragma once
 #include <thread>
 #include <vector>
+#include <atomic>
 #include <pthread.h>
 #include "starnet_monitor.h"
 
@@ -21,6 +22,11 @@ public:
     void Start();
     //等待运行
     void Wait();
+    //优雅退出：退出标志（worker/timer/monitor 轮询）
+    bool IsExit();
+    void SetExit();
+    //唤醒全部休眠 worker（退出时广播，对齐 skynet_start.c 的 cond_broadcast）
+    void WakeUpAll();
     //让工作线程等待（仅工作线程调用）
     void WorkerWait();
     //检查并唤醒线程
@@ -45,6 +51,8 @@ private:
     pthread_mutex_t sleepMtx;
     pthread_cond_t sleepCond;
     int sleepCount = 0;        //休眠工作线程数
+    //优雅全局退出标志（退出时 worker 处理完队列到空后退出）
+    std::atomic<bool> exitFlag{false};
 private:
     //开启工作线程
     void StartWorker();
@@ -54,4 +62,6 @@ private:
     void StartTimer();
     //开启监视器线程
     void StartMonitor();
+    //Timer线程驱动（对齐 skynet_start.c thread_timer：每2.5ms驱动一次）
+    void TimerLoop();
 };

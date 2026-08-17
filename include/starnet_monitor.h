@@ -22,4 +22,5 @@ void starnet_monitor_trigger(StarnetMonitor* sm, uint32_t source, uint32_t desti
 //worker 处理完一批消息后调用（对齐 skynet_monitor_check）
 void starnet_monitor_check(StarnetMonitor* sm);
 //monitor 线程：每 intervalSec 秒检查 n 个 monitor，卡死时打 starnet_error 告警
-void starnet_monitor_run(StarnetMonitor** sm, int n, int intervalSec);
+//exitFlag：优雅退出标志（置位则退出循环，NULL 表示不检查）
+void starnet_monitor_run(StarnetMonitor** sm, int n, int intervalSec, const std::atomic<bool>* exitFlag);

@@ -52,6 +52,10 @@ void Worker::operator()() {
     while(true) {
         shared_ptr<Service> srv = starnet_globalmq_pop();
         if(!srv){
+            //优雅退出：队列空且退出标志置位 → 退出（保证所有服务 OnExit 已处理完）
+            if(start->IsExit()) {
+                break;
+            }
             start->WorkerWait();
         }
         else{

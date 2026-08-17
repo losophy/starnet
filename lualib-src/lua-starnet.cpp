@@ -53,6 +53,9 @@ void LuaAPI::Register(lua_State *luaState) {
 
         { "log", Log },
 
+        //优雅全局退出（业务主动触发停机）
+        { "globalexit", GlobalExit },
+
         { "timeout", Timeout },
         { NULL, NULL }
     };
@@ -509,6 +512,12 @@ int LuaAPI::Log(lua_State *luaState){
         }
     }
     starnet_log("%s", text.c_str());
+    return 0;
+}
+
+//优雅全局退出：请求停机（主线程 Wait 收到后排空服务 + 收尾全部线程）
+int LuaAPI::GlobalExit(lua_State *luaState){
+    Starnet::inst->RequestExit();
     return 0;
 }
 

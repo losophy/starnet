@@ -7,6 +7,8 @@
 #include "starnet_mem.h"
 #include <iostream>
 #include <assert.h>
+#include <vector>
+#include <string.h>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -21,6 +23,16 @@ using namespace std;
 Starnet* Starnet::inst;
 Starnet::Starnet(){
     inst = this;
+}
+
+namespace {
+//全局退出请求标志（信号 handler 置位，async-signal-safe；对齐 skynet_start.c 的全局 SIG）
+volatile sig_atomic_t g_exit_request = 0;
+}
+
+//SIGINT/SIGTERM 处理：仅置退出请求标志（优雅全局退出的起点，停机保护）
+static void handle_exit_signal(int) {
+    g_exit_request = 1;
 }
 
 //开启系统（对齐 skynet_start(&config)）
@@ -39,6 +51,13 @@ void Starnet::Start(StarnetConfig& cfg) {
     starnet_log("Hello Starnet");
     //忽略SIGPIPE信号
     signal(SIGPIPE, SIG_IGN);
+    //注册优雅退出信号（SIGINT/SIGTERM → 全局退出；对齐 skynet 由服务全退触发，starnet 补信号停机保护）
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_exit_signal;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
     //锁
     pthread_rwlock_init(&servicesLock, NULL);
     starnet_globalmq_init();
@@ -117,6 +136,32 @@ void Starnet::KillService(uint32_t id) {
         if(srv->mq.TryEnterGlobal(srv)) {
             start->CheckAndWeakUp();
         }
+    }
+}
+
+//请求全局退出（信号 handler / starnet.globalexit 统一入口）
+void Starnet::RequestExit() {
+    g_exit_request = 1;
+}
+
+//是否已请求退出（主线程 Wait 轮询）
+bool Starnet::IsExitRequested() {
+    return g_exit_request != 0;
+}
+
+//全部服务退休（对齐 skynet_context_dispatchall 的排空语义：
+//遍历期间逐一 KillService 会 erase，先快照 id 列表）
+void Starnet::KillAllServices() {
+    vector<uint32_t> ids;
+    pthread_rwlock_rdlock(&servicesLock);
+    {
+        for(auto& kv : services) {
+            ids.push_back(kv.first);
+        }
+    }
+    pthread_rwlock_unlock(&servicesLock);
+    for(uint32_t id : ids) {
+        KillService(id);
     }
 }
 

@@ -26,9 +26,12 @@ void starnet_monitor_check(StarnetMonitor* sm) {
     }
 }
 
-//monitor 线程：每 intervalSec 秒检查一次
-void starnet_monitor_run(StarnetMonitor** sm, int n, int intervalSec) {
+//monitor 线程：每 intervalSec 秒检查一次（退出标志置位则退出）
+void starnet_monitor_run(StarnetMonitor** sm, int n, int intervalSec, const std::atomic<bool>* exitFlag) {
     while(true) {
+        if(exitFlag && exitFlag->load(std::memory_order_relaxed)) {
+            break;
+        }
         for(int i = 0; i < n; i++) {
             StarnetMonitor* p = sm[i];
             uint32_t v = p->version.load(std::memory_order_relaxed);
