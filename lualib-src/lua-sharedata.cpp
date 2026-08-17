@@ -216,6 +216,16 @@ static int lcopy(lua_State *L) {
 //box 只读查找（__index）
 static int lindex(lua_State *L) {
     BoxUserData *b = check_box(L, 1);
+    //先查 box metatable 的方法字段（version/isdirty/hashlen），命中直接返回
+    //（对齐 skynet lua-sharedata.c：__index 是函数时 Lua 不自动回退 metatable 字段，需手动查）
+    if (lua_getmetatable(L, 1)) {
+        lua_pushvalue(L, 2);
+        lua_rawget(L, -2);
+        if (!lua_isnil(L, -1)) {
+            return 1;
+        }
+        lua_pop(L, 2);
+    }
     SharedKey key;
     int kt = lua_type(L, 2);
     if (kt == LUA_TNUMBER) {
