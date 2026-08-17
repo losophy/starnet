@@ -10,6 +10,7 @@
 local starnet = require "starnet"
 local socket = starnet.socket
 local pack = starnet.pack
+local coroutine_yield = coroutine.yield
 
 --节点配置：node -> "host:port"（env cluster 扁平键，逗号分隔）
 local node_address = {}
@@ -136,7 +137,7 @@ starnet.dispatch("socket", function(fd, msg)
         local co = session_cb[session]
         if co then
             session_cb[session] = nil
-            coroutine.resume(co, true, ok, data)
+            starnet.wakeup(co, true, ok, data)
         end
     end
 end)

@@ -335,6 +335,15 @@ local function resolve_addr(addr)
     return h
 end
 
+--跨协程唤醒（供宿主库外恢复挂起的协程，如 clusterd 收响应后唤醒 request 协程）：
+--恢复期间维护 running_thread，保证被唤醒协程里的 ret/response 拿到正确会话
+function starnet.wakeup(co, ...)
+    local prev = running_thread
+    local ok, result = coroutine_resume(co, ...)
+    running_thread = prev
+    return ok, result
+end
+
 --启动函数（对齐 skynet.start：主协程执行）
 function starnet.start(func)
     local co = co_create(func)
@@ -496,7 +505,12 @@ end
 
 --回包（对齐 skynet.ret：把结果发回请求方）
 function starnet.ret(msg, sz)
-    msg = msg or ""
+    if msg == nil then
+        msg = ""
+    elseif type(msg) ~= "string" then
+        --非字符串（布尔/数字等）转字符串，避免 send_session 收到非字符串报错
+        msg = tostring(msg)
+    end
     local co = running_thread
     local co_session = session_coroutine_id[co]
     if co_session == nil then

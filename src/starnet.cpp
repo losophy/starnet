@@ -262,6 +262,9 @@ int Starnet::Listen(uint32_t port, uint32_t serviceId) {
         return -1;
     }
     fcntl(listenFd, F_SETFL, O_NONBLOCK);
+    //SO_REUSEADDR：重启时 TIME_WAIT 不阻塞 bind（对齐 skynet socket_server.c）
+    int one = 1;
+    setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     //创建地址结构
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
