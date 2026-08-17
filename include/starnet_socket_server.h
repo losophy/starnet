@@ -63,6 +63,10 @@ public:
     int Connect(uint32_t serviceId, const char* host, int port);
     //绑定已有 fd（对齐 skynet socket_server_bind：接管外部创建的 socket，引擎不负责 close）
     int Bind(uint32_t serviceId, int fd);
+    //连接控制（对齐 skynet socket_server_nodelay / pause / start / shutdown）
+    int SetNoDelay(int fd);          //TCP_NODELAY（关 Nagle，游戏交互协议必须）
+    int PauseRead(int fd);           //暂停读（去 EPOLLIN，写缓冲照常刷）
+    int ResumeRead(int fd);          //恢复读（start；对已读连接幂等）
 private:
     void OnEvent(epoll_event ev);
     void OnAccept(shared_ptr<Conn> conn);

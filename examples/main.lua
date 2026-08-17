@@ -9,11 +9,11 @@ starnet.start(function()
     --演示内存统计：进程 RSS（KB，对齐 skynet.mem）
     starnet.log("mem used = "..tostring(starnet.mem()).." KB")
     --启动子服务
-    starnet.NewService("chat")
-    local ping = starnet.NewService("ping")
-    local db = starnet.NewService("db")
-    --UDP echo 示例（绑定 8003，演示 starnet.udp + dispatch("udp")）
-    starnet.NewService("udp")
+    starnet.newservice("chat")
+    local ping = starnet.newservice("ping")
+    local db = starnet.newservice("db")
+    --UDP echo 示例（绑定 8003，演示 starnet.socket.udp + dispatch("udp")）
+    starnet.newservice("udp")
     --名字服务：注册本地名（对齐 skynet.name），并用名字解析（starnet.localname）
     starnet.name(".ping", ping)
     starnet.name(".db", db)

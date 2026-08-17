@@ -71,8 +71,8 @@ end)
 | `starnet.getenv(name)` / `starnet.setenv(name, value)` | 环境配置查询/设置（config 全部键 + 运行时修改；getenv 不存在返回 nil） | `skynet.getenv` / `skynet.setenv` |
 | `starnet.mem()` | 内存统计：进程常驻内存 RSS（KB，读 `/proc/self/status`） | `skynet.mem` |
 | `starnet.name(name, handle)` / `starnet.localname(name)` | 注册本地名（`.` 前缀）/ 按名查 id | `skynet.name` / `skynet.localname` |
-| `starnet.NewService(type)` | 新建服务 | `skynet.newservice` |
-| `starnet.KillService(id)` / `starnet.exit()` | 退出服务 | `skynet.kill` |
+| `starnet.newservice(type)` | 新建服务 | `skynet.newservice` |
+| `starnet.killservice(id)` / `starnet.exit()` | 退出服务 | `skynet.kill` |
 | `starnet.send(addr, "lua", msg)` | 发送消息（无需响应）；addr 支持 `.名字` | `skynet.send` |
 | `starnet.call(addr, "lua", msg)` | RPC 同步调用（挂起协程等响应）；addr 支持 `.名字` | `skynet.call` |
 | `starnet.ret(msg)` | 当前请求回包（会话式） | `skynet.ret` |
@@ -80,12 +80,16 @@ end)
 | `starnet.sleep(ti)` | 协程挂起 ti centisecond | `skynet.sleep` |
 | `starnet.fork(func, ...)` | 新建协程延后执行 | `skynet.fork` |
 | `starnet.timeout(ti, func)` | ti centisecond 后执行 func | `skynet.timeout` |
-| `starnet.Listen(port, id)` / `starnet.Write(fd, buff)` / `starnet.CloseConn(fd)` | socket 操作（回退到 C 绑定） | `skynet.socket` |
-| `starnet.udp(addr, port)` / `starnet.udp_connect(addr, port)` / `starnet.send_udp(fd, msg, addr, port)` | UDP：监听 / 连接（默认对端）/ 发送（addr 空用默认对端） | `skynet.udp` / `skynet.udp_connect` / `skynet.send_udp` |
-| `starnet.connect(host, port)` | 主动连接（非阻塞）：返回 fd；成功 `dispatch("connect", fd, ip)`，失败 `dispatch("error", fd, err)` | `skynet.socket.connect` |
-| `starnet.bind(fd)` | 绑定已有 fd（接管外部创建的 socket，类型自动识别，引擎不负责 close） | `skynet.socket.bind` |
-| `starnet.Write(fd, msg)` | 发送（走 high 高优先级队列） | `skynet.socket.send` |
-| `starnet.WriteLow(fd, msg)` | 发送（走 low 低优先级队列：high 刷完才刷 low，不丢包仅排后） | `skynet.socket.send_low` |
+| `starnet.socket.listen(port, id)` | 监听端口（回退到 C 绑定） | `skynet.socket.listen` |
+| `starnet.socket.write(fd, msg)` | 发送（走 high 高优先级队列） | `skynet.socket.send` |
+| `starnet.socket.write_low(fd, msg)` | 发送（走 low 低优先级队列：high 刷完才刷 low，不丢包仅排后） | `skynet.socket.send_low` |
+| `starnet.socket.close(fd)` | 关闭连接 | `skynet.socket.close` |
+| `starnet.socket.connect(host, port)` | 主动连接（非阻塞）：返回 fd；成功 `dispatch("connect", fd, ip)`，失败 `dispatch("error", fd, err)` | `skynet.socket.connect` |
+| `starnet.socket.bind(fd)` | 绑定已有 fd（接管外部创建的 socket，类型自动识别，引擎不负责 close） | `skynet.socket.bind` |
+| `starnet.socket.nodelay(fd)` | TCP_NODELAY 关 Nagle（游戏交互协议必须） | `skynet.socket.nodelay` |
+| `starnet.socket.pause(fd)` / `starnet.socket.start(fd)` | 暂停读 / 恢复读（流控） | `skynet.socket.pause` / `skynet.socket.start` |
+| `starnet.socket.shutdown(fd)` | 优雅关闭：写缓冲发完再关 | `skynet.socket.shutdown` |
+| `starnet.socket.udp(addr, port)` / `starnet.socket.udp_connect(addr, port)` / `starnet.socket.send_udp(fd, msg, addr, port)` | UDP：监听 / 连接（默认对端）/ 发送（addr 空用默认对端） | `skynet.udp` / `skynet.udp_connect` / `skynet.send_udp` |
 | `starnet.PTYPE_*` | 协议类型常量（TEXT/RESPONSE/SOCKET/LUA…，对齐 `skynet.h`） | `skynet.PTYPE_*` |
 
 socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket`(fd, msg)、`close`(fd)、`udp`(fd, msg, addr, port)、`connect`(fd, ip)、`error`(fd, err)。其中 `socket` 回调收到的是**完整数据包**——TCP 粘包/半包由 `netpack` 自动解析（2 字节大端长度头，对齐 skynet）；发送方需用 `starnet.pack(msg)` 加长度头；`udp` 报式无粘包，直接收完整报文：
@@ -93,9 +97,12 @@ socket 消息类型（`dispatch` 名）：`accept`(clientfd, listenfd)、`socket
 ```lua
 starnet.dispatch("socket", function(fd, msg)
     -- msg 是完整包（已去掉长度头）
-    starnet.Write(fd, starnet.pack(msg))  -- 转发时再加头
+    starnet.socket.write(fd, starnet.pack(msg))  -- 转发时再加头
 end)
 ```
+
+> **为什么 starnet 新连接默认就读、不用显式 `start(fd)`？**
+> skynet 中 accept/connect 刚建好的连接默认暂停，服务必须调 `socket.start(fd)` 才授权引擎读数据（给业务"先准备再收"的同步点）。starnet 的 accept/数据走同一条服务消息队列，**先 ACCEPT 后 DATA 顺序天然保证**（业务处理 accept 时数据必在其后），无需显式授权——所以 `start` 只用于 `pause` 暂停读后的恢复，日常业务零样板。
 
 ## 示例说明
 
@@ -107,9 +114,9 @@ end)
 
 ### chat
 Socket 聊天室示例（协程化 socket 消息 + 封包）：
-- `starnet.start` 里 `starnet.Listen(8002, serviceId)` 监听 8002 端口
+- `starnet.start` 里 `starnet.socket.listen(8002, serviceId)` 监听 8002 端口
 - `dispatch("accept", ...)` 记录新连接
-- `dispatch("socket", ...)` 收到**完整包**后广播给所有连接（`starnet.Write(cfd, starnet.pack(msg))` 加长度头）
+- `dispatch("socket", ...)` 收到**完整包**后广播给所有连接（`starnet.socket.write(cfd, starnet.pack(msg))` 加长度头）
 - `dispatch("close", ...)` 移除断开连接
 
 联调方式（另开终端）：
@@ -132,8 +139,8 @@ RPC 请求-应答示例：
 
 ### udp
 UDP echo 示例（绑定 8003 端口）：
-- `starnet.start` 里 `starnet.udp("0.0.0.0", 8003)` 绑定 UDP 端口
-- `dispatch("udp", ...)` 收到报文（含对端 `addr`/`port`），`starnet.send_udp(fd, msg, addr, port)` 原样回包
+- `starnet.start` 里 `starnet.socket.udp("0.0.0.0", 8003)` 绑定 UDP 端口
+- `dispatch("udp", ...)` 收到报文（含对端 `addr`/`port`），`starnet.socket.send_udp(fd, msg, addr, port)` 原样回包
 
 联调方式（另开终端）：
 
@@ -147,4 +154,4 @@ echo hello | nc -u 127.0.0.1 8003
 
 1. 新建单文件 `examples/<名字>.lua`
 2. 用宿主库编写：`starnet.start` + `starnet.dispatch`（见上方 API 表）
-3. 在启动链上拉起它：`main.lua` 里 `starnet.NewService("<名字>")`，或把 config 的 `start` 字段改成你的服务名（`starnet_main.cpp` 按 `cfg.start` 启动）
+3. 在启动链上拉起它：`main.lua` 里 `starnet.newservice("<名字>")`，或把 config 的 `start` 字段改成你的服务名（`starnet_main.cpp` 按 `cfg.start` 启动）

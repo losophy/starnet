@@ -21,22 +21,26 @@ static Service* GetCurrentService(lua_State *L) {
 void LuaAPI::Register(lua_State *luaState) {
     
     static luaL_Reg lualibs[] = {
-        { "NewService", NewService },
-        { "KillService", KillService },
-        { "Send", Send },
+        { "newservice", NewService },
+        { "killservice", KillService },
+        { "send", Send },
         { "send_session", SendSession },
         { "self", Self },
         { "genid", Genid },
 
-        { "Listen", Listen },
-        { "CloseConn", CloseConn },
-        { "Write", Write },
-        { "WriteLow", WriteLow },
-        { "Connect", Connect },
-        { "Bind", Bind },
-        { "Udp", Udp },
-        { "SetUdpAddress", SetUdpAddress },
-        { "SendUdp", SendUdp },
+        { "listen", Listen },
+        { "close_conn", CloseConn },
+        { "write", Write },
+        { "write_low", WriteLow },
+        { "connect", Connect },
+        { "bind", Bind },
+        { "udp", Udp },
+        { "udp_connect", SetUdpAddress },
+        { "send_udp", SendUdp },
+        { "nodelay", NoDelay },
+        { "pause", Pause },
+        { "start", Start },
+        { "shutdown", Shutdown },
 
         { "name", Name },
         { "localname", LocalName },
@@ -306,6 +310,53 @@ int LuaAPI::Connect(lua_State *luaState){
     int fd = Starnet::inst->Connect(srv ? srv->id : 0, host, port);
     lua_pushinteger(luaState, fd);
     return 1;
+}
+
+//连接控制：TCP_NODELAY（关 Nagle，对齐 skynet socket.nodelay）
+//参数：fd(int)；返回 0（成功）/-1（失败）
+int LuaAPI::NoDelay(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int fd = (int)lua_tointeger(luaState, 1);
+    int r = Starnet::inst->SetNoDelay(fd);
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//连接控制：暂停读（对齐 skynet socket.pause）
+int LuaAPI::Pause(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int fd = (int)lua_tointeger(luaState, 1);
+    int r = Starnet::inst->PauseRead(fd);
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//连接控制：恢复读（对齐 skynet socket.start；对已读连接幂等）
+int LuaAPI::Start(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int fd = (int)lua_tointeger(luaState, 1);
+    int r = Starnet::inst->ResumeRead(fd);
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//连接控制：shutdown（写缓冲发完再关，对齐 skynet socket.shutdown）
+int LuaAPI::Shutdown(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0) {
+        return 1;
+    }
+    int fd = (int)lua_tointeger(luaState, 1);
+    Starnet::inst->Shutdown(fd);
+    return 0;
 }
 
 //UDP：创建 socket（对齐 skynet c.udp / c.udp_connect / c.udp_listen）

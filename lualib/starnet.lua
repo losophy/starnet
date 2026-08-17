@@ -283,7 +283,7 @@ function starnet.self()
 end
 
 function starnet.exit()
-    c.KillService(c.self())
+    c.killservice(c.self())
     --终止当前协程（对齐 skynet exit 投 QUIT 后挂起，避免 exit 后代码继续执行）
     coroutine_yield("QUIT")
 end
@@ -352,13 +352,66 @@ function starnet.pack(msg)
     return netpack.pack(msg)
 end
 
+--socket 接口（对齐 skynet.socket 子表：listen/connect/bind/write/write_low/close/shutdown/start/pause/nodelay/udp/udp_connect/send_udp）
+starnet.socket = {}
+
+--监听（对齐 skynet.socket.listen）
+function starnet.socket.listen(port, id)
+    return c.listen(port, id)
+end
+
+--主动连接（对齐 skynet.socket.connect：非阻塞，返回 fd；成功投 dispatch("connect", fd, ip)，失败投 dispatch("error", fd, err)）
+function starnet.socket.connect(addr, port)
+    return c.connect(addr, port)
+end
+
+--绑定已有 fd（对齐 skynet.socket.bind：接管外部创建的 socket，引擎不负责 close；类型自动识别，数据走 dispatch("socket"/"udp")）
+function starnet.socket.bind(fd)
+    return c.bind(fd)
+end
+
+--发送（对齐 skynet.socket.write：走 high 高优先级队列）
+function starnet.socket.write(fd, msg)
+    return c.write(fd, msg)
+end
+
+--发送低优先级（对齐 skynet.socket.send_low：high 刷完才刷 low，不丢包仅排后）
+function starnet.socket.write_low(fd, msg)
+    return c.write_low(fd, msg)
+end
+
+--关闭连接（对齐 skynet.socket.close）
+function starnet.socket.close(fd)
+    c.close_conn(fd)
+end
+
+--shutdown：写缓冲发完再关（对齐 skynet.socket.shutdown，优雅关闭）
+function starnet.socket.shutdown(fd)
+    c.shutdown(fd)
+end
+
+--恢复读（对齐 skynet.socket.start：对已读连接幂等；新连接默认读，仅用于 pause 后恢复）
+function starnet.socket.start(fd)
+    c.start(fd)
+end
+
+--暂停读（对齐 skynet.socket.pause：去 EPOLLIN，写缓冲照常刷，流控用）
+function starnet.socket.pause(fd)
+    c.pause(fd)
+end
+
+--TCP_NODELAY 关 Nagle（对齐 skynet.socket.nodelay：游戏交互协议必须）
+function starnet.socket.nodelay(fd)
+    c.nodelay(fd)
+end
+
 --UDP 监听：绑定 addr:port 收包（对齐 skynet.udp，即 udp_listen）
-function starnet.udp(addr, port)
+function starnet.socket.udp(addr, port)
     return c.udp(addr, port, true)
 end
 
 --UDP 连接：创建并设置默认对端（对齐 skynet.udp_connect，后续 send_udp 可不带地址）
-function starnet.udp_connect(addr, port)
+function starnet.socket.udp_connect(addr, port)
     local fd = c.udp(addr, port, false)
     if fd >= 0 then
         c.udp_connect(fd, addr, port)
@@ -367,21 +420,11 @@ function starnet.udp_connect(addr, port)
 end
 
 --UDP 发送：addr 为空用默认对端（对齐 skynet.send_udp）
-function starnet.send_udp(fd, msg, addr, port)
+function starnet.socket.send_udp(fd, msg, addr, port)
     if addr == nil then
         return c.send_udp(fd, nil, 0, msg)
     end
     return c.send_udp(fd, addr, port or 0, msg)
-end
-
---主动连接（对齐 skynet.socket.connect：非阻塞，返回 fd；成功投 dispatch("connect", fd, ip)，失败投 dispatch("error", fd, err)）
-function starnet.connect(addr, port)
-    return c.connect(addr, port)
-end
-
---绑定已有 fd（对齐 skynet.socket.bind：接管外部创建的 socket，引擎不负责 close；类型自动识别，数据走 dispatch("socket"/"udp")）
-function starnet.bind(fd)
-    return c.bind(fd)
 end
 
 --写日志（对齐 skynet.log：走统一日志器，时间戳 + 落盘/stderr）

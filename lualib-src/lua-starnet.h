@@ -32,6 +32,12 @@ public:
     //绑定已有 fd（对齐 skynet c.bind）
     static int Bind(lua_State *luaState);
 
+    //连接控制（对齐 skynet socket.nodelay / pause / start / shutdown）
+    static int NoDelay(lua_State *luaState);
+    static int Pause(lua_State *luaState);
+    static int Start(lua_State *luaState);
+    static int Shutdown(lua_State *luaState);
+
     //UDP（对齐 skynet c.udp / c.udp_connect / c.send_udp）
     static int Udp(lua_State *luaState);
     static int SetUdpAddress(lua_State *luaState);

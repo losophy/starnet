@@ -61,7 +61,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - **starnet 现状**：✅ 已补 `lua-netpack.cpp`——移植 `lua-netpack.c` 核心逻辑：
   - 发送 `starnet.pack(msg)` 加 2 字节大端长度头（最大 0xFFFF）。
   - 接收 `netpack.filter(queue, fd, buff, size)` 按 fd 维护 `uncomplete` 半包链表，解析完整包（`"data"`）或多个包（`"more"` + `netpack.pop` 循环取）；连接关闭 `netpack.close` 清半包。
-  - `starnet.lua` 的 `dispatch_socket` 数据分支接入 filter，`dispatch("socket")` 收到的是**完整包**（无粘包半包）；`chat` 广播用 `starnet.Write(fd, starnet.pack(msg))`。
+  - `starnet.lua` 的 `dispatch_socket` 数据分支接入 filter，`dispatch("socket")` 收到的是**完整包**（无粘包半包）；`chat` 广播用 `starnet.socket.write(fd, starnet.pack(msg))`。
   - **读取已统一到 socket 线程**（对齐 skynet `socket_server.c` 读缓冲 + `read` 即投递）：`SocketServer::ReadData` 循环 `read(fd, 8192)` 到 EAGAIN，每块投一条 `SocketMsg{DATA, fd, buff}`，worker 侧直接用现成数据（`Service::OnSocketMsg` 不再 read）。
 - **未补**：`socket_server.c` 的动态读缓冲大小（`MIN_READ_BUFFER` 增缩，starnet 用固定 8192 块）。
 
@@ -101,15 +101,22 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **队列 overload / 权重调度** | `skynet_mq.c` | ✅ 已补：`MQ_OVERLOAD`（1024）告警 + weight 加权调度 | 决策：weight 用硬编码表（对齐 `skynet_start.c`），不做 config 化（skynet 本身即硬编码；config 系统只导入顶层标量）；示例 `thread=8`（对齐 skynet 标准），避免 thread≤4 时全部 weight=-1（每轮 1 条）的低效 |
 | **消息丢弃 / 释放** | `skynet_mq.c` 的 `message_drop` / `skynet_mq_release` | ✅ 已补：服务退出丢弃残留消息时给发送方回 `PTYPE_ERROR`（对齐 `drop_message`）；Lua 侧 `call` 收到 ERROR 报错退出 | 决策：SocketMsg 不加 source 字段（详见下方说明）；队列内存随 Service 生命周期（`shared_ptr` 自管） |
 | **UDP** | `socket_server.c` 的 `socket_server_udp*` / `skynet_socket.c` 的 `SKYNET_SOCKET_TYPE_UDP` | ✅ 已补：`AddUdp/SetUdpAddress/SendUdp`（`starnet.udp/udp_connect/send_udp`），`getaddrinfo` 支持 IPv4/IPv6，socket 线程循环 `recvfrom` 读（读归引擎），报文带二进制对端地址（对齐 `gen_udp_address`） | 决策：UDP 无写缓冲（直接 `sendto`；skynet 的 UDP 写缓冲是「与 TCP 共用一套发送流程」的副产品，详见下方说明）；报式无粘包，`dispatch("udp", fd, msg, addr, port)` 不走 netpack |
-| **主动连接** | `socket_server.c` 的 `socket_server_connect` / `skynet_socket.c` 的 `SKYNET_SOCKET_TYPE_CONNECT` | ✅ 已补：`Connect`（`starnet.connect(host, port)`），`getaddrinfo` 支持 IPv4/IPv6 + 非阻塞 `connect`（立即成功或 EINPROGRESS 等 EPOLLOUT）；完成 `getsockopt(SO_ERROR)` 检查，成功投 `CONNECT`（带对端 ip）、失败投 `ERROR`（带错误串）；`Conn.connecting` 标志连接中 | 决策：connect 失败走 `SKYNET_SOCKET_TYPE_ERROR`（对齐 skynet，`dispatch("error", fd, err)`），业务可区分「连不上」与「连上后断开」；无 connect 超时（靠 TCP 内核超时，对齐 skynet） |
-| **绑定已有 fd** | `socket_server.c` 的 `socket_server_bind` / `skynet_socket.c` 的 `skynet_socket_bind` | ✅ 已补：`Bind`（`starnet.bind(fd)`）接管外部创建的 socket——校验 fd 合法且未托管、强制 `O_NONBLOCK`、`getsockopt(SO_TYPE)` 自动识别 TCP/UDP、`AddConn`+`AddEvent`；`Conn.isBind` 标记 | 决策：绑定 fd 所有权在外部，引擎**不负责 close**（对齐 skynet `force_close` 对 `SOCKET_TYPE_BIND` 跳过 close）；无 start 步骤（starnet 同步注册即启用读） |
-| **写缓冲优先级** | `socket_server.c` 的 `send_socket`/`send_buffer_` / `socket_server_send_lowpriority` | ✅ 已补：`starnet.WriteLow(fd, msg)`——`ConnWriteBuffer` high/low 双队列；空缓冲直写失败的部分**一律进 high**（对齐 `send_socket` "even priority == PRIORITY_LOW"）；非空按优先级分流；刷写对齐 `send_buffer_` 四步：1.刷 high 到空 2.刷 low 3.low 头半包挪到 high 尾（`raise_uncomplete` 防 TCP 乱序）4.都空关 EPOLLOUT | 决策：low **不丢包**（仅排最后）；无 skynet 的 `SOCKET_WARNING` 写缓冲积压告警；`LingerClose` 需刷完 high+low 才关 |
+| **主动连接** | `socket_server.c` 的 `socket_server_connect` / `skynet_socket.c` 的 `SKYNET_SOCKET_TYPE_CONNECT` | ✅ 已补：`Connect`（`starnet.socket.connect(host, port)`），`getaddrinfo` 支持 IPv4/IPv6 + 非阻塞 `connect`（立即成功或 EINPROGRESS 等 EPOLLOUT）；完成 `getsockopt(SO_ERROR)` 检查，成功投 `CONNECT`（带对端 ip）、失败投 `ERROR`（带错误串）；`Conn.connecting` 标志连接中 | 决策：connect 失败走 `SKYNET_SOCKET_TYPE_ERROR`（对齐 skynet，`dispatch("error", fd, err)`），业务可区分「连不上」与「连上后断开」；无 connect 超时（靠 TCP 内核超时，对齐 skynet） |
+| **绑定已有 fd** | `socket_server.c` 的 `socket_server_bind` / `skynet_socket.c` 的 `skynet_socket_bind` | ✅ 已补：`Bind`（`starnet.socket.bind(fd)`）接管外部创建的 socket——校验 fd 合法且未托管、强制 `O_NONBLOCK`、`getsockopt(SO_TYPE)` 自动识别 TCP/UDP、`AddConn`+`AddEvent`；`Conn.isBind` 标记 | 决策：绑定 fd 所有权在外部，引擎**不负责 close**（对齐 skynet `force_close` 对 `SOCKET_TYPE_BIND` 跳过 close）；无 start 步骤（starnet 同步注册即启用读） |
+| **写缓冲优先级** | `socket_server.c` 的 `send_socket`/`send_buffer_` / `socket_server_send_lowpriority` | ✅ 已补：`starnet.socket.write_low(fd, msg)`——`ConnWriteBuffer` high/low 双队列；空缓冲直写失败的部分**一律进 high**（对齐 `send_socket` "even priority == PRIORITY_LOW"）；非空按优先级分流；刷写对齐 `send_buffer_` 四步：1.刷 high 到空 2.刷 low 3.low 头半包挪到 high 尾（`raise_uncomplete` 防 TCP 乱序）4.都空关 EPOLLOUT | 决策：low **不丢包**（仅排最后）；无 skynet 的 `SOCKET_WARNING` 写缓冲积压告警；`LingerClose` 需刷完 high+low 才关 |
+| **连接控制** | `socket_server.c` 的 `socket_server_nodelay/pause/start/shutdown` | ✅ 已补：`starnet.socket.nodelay(fd)`（`setsockopt(TCP_NODELAY)` 关 Nagle）、`pause(fd)`（`Conn.paused` 去 EPOLLIN，写缓冲照常刷）、`start(fd)`（恢复读，对已读连接幂等）、`shutdown(fd)`（优雅关闭：写缓冲发完再断，复用 `LingerClose`）；`AddEvent`/`ModifyEvent` 按 `paused` 拼 events | 决策：**新连接默认读，不学 skynet「必须显式 start 才收数据」**（详见下方说明）；`start` 只作 pause 后的恢复，日常业务零样板 |
 
 > **内存统计为何用「进程 RSS」（不照搬 `malloc_hook`）**：
 > 1. **对齐 skynet 实际做法**——skynet 的 `mem_info.c` 报告的就是进程 RSS（读 `/proc/self/status` 的 `VmRSS`），`skynet.mem()` 返回进程级内存，并非单服务统计；
 > 2. **RSS 即监控全景**——单进程框架下，进程内存 = 框架全部内存（starnet 服务为 Lua 脚本，Lua 内存也在进程内）；
 > 3. **不做全局 `operator new` 重载**——`malloc_hook` 的宏替换 `malloc/free` 在 C++ 不可行（统计不到 `new/delete` 与 std 容器）；C++ 等价物为全局 `operator new` 重载，侵入整个进程所有分配（含 std 库内部），须正确实现分配失败的 `bad_alloc` 异常语义与对齐处理，且**同样没有泄漏定位能力**，收益与风险不成比例；
 > 4. **泄漏排查用外部工具**（valgrind/heaptrack），非框架内模块职责。
+
+> **连接控制为何「新连接默认读」，不学 skynet「必须显式 `start` 才收数据」**：
+> 1. **skynet 的设计**：accept/connect 刚建好的连接处于 paused（`SOCKET_TYPE_PACCEPT`），服务必须调 `socket.start(fd)` 才授权引擎读——这是给业务一个「先处理 accept 消息、准备好会话/初始化、再开始收数据」的显式同步点，也是 pause/start 流控的基础；
+> 2. **starnet 不需要这个同步点**：starnet 的 accept/数据走**同一条服务消息队列**，socket 线程先投 ACCEPT、后续 DATA 排在后面——顺序天然保证「业务先于数据」（服务处理 accept 时数据必在其后），不存在 skynet 担心的「业务未就绪数据先到」问题；
+> 3. **强制 start 的代价**：每个 accept/connect 处理多一行样板代码，忘了写连接就「僵尸」了（收不到数据），排查困难；
+> 4. **starnet 的折中**：新连接默认读（零样板），但保留 `pause/start` 作为**可选流控**（`start` 对已读连接幂等、无副作用）——学 skynet 的「能力」，不学它的「默认强制」。
 
 > **SocketMsg 为何不加 source 字段（丢弃通知只对 `ServiceMsg`）**：
 > 1. **skynet 的 socket 消息 `source` 恒为 0**——skynet 所有消息共用 `struct skynet_message`（C 语言结构统一，无继承），socket 消息也装进该结构，网络消息没有真实发送方，`skynet_socket.c` 的 `forward_message` 设 `message.source = 0`；
@@ -128,12 +135,11 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 ### 网络能力
 
-- **UDP**：✅ 已补（`starnet.udp/udp_connect/send_udp`，IPv4/IPv6，socket 线程读，无写缓冲，见现状表 UDP 行）。
-- **主动连接**：✅ 已补（`starnet.connect(host, port)`，非阻塞 connect + `getsockopt` 检查；成功 `dispatch("connect", fd, ip)`、失败 `dispatch("error", fd, err)`，见现状表「主动连接」行）。
-- **绑定已有 fd**：✅ 已补（`starnet.bind(fd)` 接管外部 socket，引擎不负责 close，见现状表「绑定已有 fd」行）。
-- **绑定已有 fd**：`skynet_socket_bind`。
-- **写缓冲优先级**：✅ 已补（`starnet.WriteLow(fd, msg)`，high/low 双队列：high 刷完才刷 low、low 不丢包仅排后、low 半包 raise 到 high 尾防乱序，见现状表「写缓冲优先级」行）。
-- **连接控制**：`nodelay / pause / start / shutdown`。
+- **UDP**：✅ 已补（`starnet.socket.udp/udp_connect/send_udp`，IPv4/IPv6，socket 线程读，无写缓冲，见现状表 UDP 行）。
+- **主动连接**：✅ 已补（`starnet.socket.connect(host, port)`，非阻塞 connect + `getsockopt` 检查；成功 `dispatch("connect", fd, ip)`、失败 `dispatch("error", fd, err)`，见现状表「主动连接」行）。
+- **绑定已有 fd**：✅ 已补（`starnet.socket.bind(fd)` 接管外部 socket，引擎不负责 close，见现状表「绑定已有 fd」行）。
+- **写缓冲优先级**：✅ 已补（`starnet.socket.write_low(fd, msg)`，high/low 双队列：high 刷完才刷 low、low 不丢包仅排后、low 半包 raise 到 high 尾防乱序，见现状表「写缓冲优先级」行）。
+- **连接控制**：✅ 已补（`starnet.socket.nodelay/pause/start/shutdown`，见现状表「连接控制」行）。
 - **accept 细节**：starnet `SocketServer::OnAccept` 只 accept 一次，ET 模式应循环到 EAGAIN。
 - **读缓冲**：starnet 无 per-conn 读缓冲累积。
 
@@ -183,7 +189,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、标准服务集、lualib | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、标准服务集、lualib | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
 

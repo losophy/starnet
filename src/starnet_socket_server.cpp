@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 
@@ -119,8 +120,9 @@ void SocketServer::OnRW(shared_ptr<Conn> conn, bool r, bool w) {
             OnWriteable(conn->fd);
         }
     }
-    //可读：连接未完成时忽略（非阻塞 connect 的 EPOLLIN 空读）；读是引擎操作，由 socket 线程读出数据再投递
-    if(r && !conn->connecting) {
+    //可读：连接未完成时忽略（非阻塞 connect 的 EPOLLIN 空读）；读暂停时忽略（流控，防在途事件）
+    //读是引擎操作，由 socket 线程读出数据再投递
+    if(r && !conn->connecting && !conn->paused) {
         if(conn->type == Conn::TYPE::UDP) {
             ReadUdp(conn);
         }
@@ -355,9 +357,10 @@ bool SocketServer::RemoveConn(int fd) {
 //跨线程调用
 void SocketServer::AddEvent(int fd) {
     starnet_log("AddEvent fd %d", fd);
-    //添加到epoll
+    //添加到epoll（读暂停则不注册 EPOLLIN）
     struct epoll_event ev;
-	ev.events = EPOLLIN | EPOLLET;
+	auto conn = GetConn(fd);
+	ev.events = EPOLLET | ((conn && conn->paused) ? 0 : EPOLLIN);
 	ev.data.fd = fd;
 	if (epoll_ctl(epollFd, EPOLL_CTL_ADD, fd, &ev) == -1) {
 		starnet_error("AddEvent epoll_ctl Fail:%s", strerror(errno));
@@ -375,14 +378,10 @@ void SocketServer::ModifyEvent(int fd, bool epollOut) {
     starnet_log("ModifyEvent fd %d %d", fd, epollOut);
     struct epoll_event ev;
     ev.data.fd = fd;
-
-    if(epollOut){
-	    ev.events = EPOLLIN | EPOLLET | EPOLLOUT;
-    }
-    else
-    {
-        ev.events = EPOLLIN | EPOLLET ;
-    }
+    //读暂停时去掉 EPOLLIN（写事件按需保留，对齐 skynet enable_read）
+    auto conn = GetConn(fd);
+    bool paused = conn && conn->paused;
+    ev.events = EPOLLET | (paused ? 0 : EPOLLIN) | (epollOut ? EPOLLOUT : 0);
     epoll_ctl(epollFd, EPOLL_CTL_MOD, fd, &ev);
 }
 
@@ -797,4 +796,60 @@ int SocketServer::Bind(uint32_t serviceId, int fd) {
     }
     AddEvent(fd);
     return fd;
+}
+
+//连接控制：TCP_NODELAY（关 Nagle，对齐 skynet socket_server_nodelay；worker线程直接 setsockopt）
+int SocketServer::SetNoDelay(int fd) {
+    auto conn = GetConn(fd);
+    if(conn == NULL) {
+        return -1;
+    }
+    int one = 1;
+    if(setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == -1) {
+        starnet_error("SetNoDelay setsockopt fail, fd=%d errno=%d", fd, errno);
+        return -1;
+    }
+    return 0;
+}
+
+//连接控制：暂停读（去 EPOLLIN；写缓冲非空保留 EPOLLOUT，对齐 skynet enable_read(false)）
+int SocketServer::PauseRead(int fd) {
+    auto conn = GetConn(fd);
+    if(conn == NULL) {
+        return -1;
+    }
+    conn->paused = true;
+    //按写缓冲状态刷新事件（跨线程）
+    bool hasData = false;
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        auto iter = writeBuffers.find(fd);
+        if(iter != writeBuffers.end()) {
+            hasData = !iter->second.objs.empty() || !iter->second.low.empty();
+        }
+    }
+    pthread_spin_unlock(&writeBuffersLock);
+    ModifyEvent(fd, hasData);
+    return 0;
+}
+
+//连接控制：恢复读（start；对已读连接幂等，对齐 skynet enable_read(true)）
+int SocketServer::ResumeRead(int fd) {
+    auto conn = GetConn(fd);
+    if(conn == NULL) {
+        return -1;
+    }
+    conn->paused = false;
+    //按写缓冲状态刷新事件（跨线程）
+    bool hasData = false;
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        auto iter = writeBuffers.find(fd);
+        if(iter != writeBuffers.end()) {
+            hasData = !iter->second.objs.empty() || !iter->second.low.empty();
+        }
+    }
+    pthread_spin_unlock(&writeBuffersLock);
+    ModifyEvent(fd, hasData);
+    return 0;
 }

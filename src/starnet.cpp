@@ -270,3 +270,23 @@ int Starnet::Connect(uint32_t serviceId, const char* host, int port) {
 int Starnet::Bind(uint32_t serviceId, int fd) {
     return socketServer->Bind(serviceId, fd);
 }
+
+//连接控制：TCP_NODELAY（关 Nagle）
+int Starnet::SetNoDelay(int fd) {
+    return socketServer->SetNoDelay(fd);
+}
+
+//连接控制：暂停读（对齐 skynet socket_pause）
+int Starnet::PauseRead(int fd) {
+    return socketServer->PauseRead(fd);
+}
+
+//连接控制：恢复读（对齐 skynet socket_start）
+int Starnet::ResumeRead(int fd) {
+    return socketServer->ResumeRead(fd);
+}
+
+//连接控制：shutdown（写缓冲发完再关，对齐 skynet socket_shutdown）
+void Starnet::Shutdown(int fd) {
+    socketServer->LingerClose(fd);
+}
