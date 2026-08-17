@@ -21,8 +21,9 @@ local in_fd = {}
 --本节点公开服务名：name -> handle / handle -> name（双向）
 local register_name = {}
 local register_addr = {}
---出站 RPC 响应等待：session -> 协程
+--出站 RPC 响应等待：session -> 协程；session -> 所属节点（连接断开时按节点唤醒）
 local session_cb = {}
+local session_node = {}
 local out_session = 0
 
 --协议编解码（网络序大端）
@@ -93,7 +94,10 @@ local function request(node, addr, payload, need_response)
         return true, ""
     end
     session_cb[session] = coroutine.running()
+    session_node[session] = node
     local ok, resp_ok, resp = coroutine_yield("SUSPEND")
+    session_cb[session] = nil
+    session_node[session] = nil
     if not ok then
         error("cluster call failed")
     end
@@ -137,6 +141,7 @@ starnet.dispatch("socket", function(fd, msg)
         local co = session_cb[session]
         if co then
             session_cb[session] = nil
+            session_node[session] = nil
             starnet.wakeup(co, true, ok, data)
         end
     end
@@ -152,6 +157,17 @@ local function drop_node(fd)
     for node, nfd in pairs(node_fd) do
         if nfd == fd then
             node_fd[node] = nil
+            --唤醒该连接上所有等待响应的协程，避免 call 永久挂起
+            for session, snode in pairs(session_node) do
+                if snode == node then
+                    local co = session_cb[session]
+                    if co then
+                        session_cb[session] = nil
+                        session_node[session] = nil
+                        starnet.wakeup(co, true, false, "cluster connection to " .. node .. " closed")
+                    end
+                end
+            end
             starnet.log("cluster connection to " .. node .. " closed")
             return
         end

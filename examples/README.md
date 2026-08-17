@@ -103,6 +103,11 @@ cd build && ./starnet ../examples/config_cluster1.lua
 
 即两边互相 RPC 成功（`@名字` 由对端解析，`query` 拿到对端服务 handle）。
 
+> **若 nodeB 的调用方向 nodeA 时报 `cluster call ... error: cluster connection to ... closed`**：
+> 说明发起调用时对端还没监听（本例两者都会在 `sleep(200)` 后互调，约 2 秒内对端必须已启动）。
+> 这是**预期行为**——连接被拒时本次 `cluster.call` 立即失败返回 `nil` 并打印告警，**不会永久挂起**；
+> 稍后对端起来后，它发过来的调用仍正常处理。想两者都调通，把两个节点在 2 秒内都启动即可。
+
 ## 4. sharedata：共享只读数据 + 热更
 
 ```sh
@@ -153,7 +158,7 @@ socket 消息类型：`accept`(clientfd, listenfd)、`socket`(fd, msg)、`close`
 | `listen error, bind fail errno=98` | 端口被占。杀干净残留进程再启；引擎已开 `SO_REUSEADDR`，正常 kill 后可立即重启 |
 | `nc 连上但打字没反应` | 不是 chat 的话：该服务走 netpack 帧协议，nc 发的裸文本被当包长缓冲了；chat 已开 `rawdata()`，用它测 |
 | 日志里 `OnEvent error, conn == NULL` | 旧版本 socket 线程拷贝 bug，重新构建（`make`） |
-| cluster 只看到 `listening` 没有互相调用 | 检查启动顺序：**先 cluster2 后 cluster1**；以及两端口（8001/8002）未被占 |
+| cluster 只看到 `listening` 没有互相调用 | 检查启动顺序：**先 cluster2 后 cluster1**；以及两端口（8001/8002）未被占。若日志有 `cluster call ... error: cluster connection to ... closed`，说明发调用时对端未起，call 已失败返回（不挂起），重新启动即可 |
 
 ## 7. 目录结构
 
