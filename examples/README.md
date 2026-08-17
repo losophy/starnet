@@ -171,6 +171,19 @@ cd build && ./starnet ../examples/config_cluster1.lua
 
 `cluster1` 日志应打印 `call nodeB.@hello2 -> pong from cluster2`、`query nodeB.hello2 -> <cluster2 服务 handle>`。
 
+### sharedata
+共享只读数据示例（引擎内精简版 sharedata，对齐 `skynet.sharedata`）：
+- `config_data.lua`：数据文件（`loadfile` 后取 `return` 的表，对齐 skynet `CMD.new` 的 `"@文件"` 加载）
+- `sharedata.lua`：演示服务——`sharedata.new` 加载配置 → `query` 快照读取（box 只读视图零拷贝）→ `deepcopy` 导出普通表 → `update` 热更（老 box 读旧版、新 query 拿新版）→ `subscribe` 订阅（轮询简化版）
+
+API（`require "starnet.sharedata"`）：`query(name)` 返回 box（`box[key]` 读取、`pairs(box)` 迭代、`box:version()`/`box:isdirty()`）；`new(name, v)` / `update(name, v)` 写入（`v` 为表、`"@文件路径"` 或代码串）；`delete(name)`；`deepcopy(name)` 导出普通表；`subscribe(name, fn)` 订阅更新（每 100ms 轮询版本）。底层 `starnet.sharedata` C 子表提供 `query/new/update/delete/exist/version/copy`。
+
+```sh
+cd build && ./starnet ../examples/config_sharedata.lua
+```
+
+日志应打印加载的配置值、热更前后 max_level（50 → 99）、订阅回调（max_level → 100）。
+
 ## 如何新建示例
 
 1. 新建单文件 `examples/<名字>.lua`

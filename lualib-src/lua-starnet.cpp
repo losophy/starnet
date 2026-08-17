@@ -1,5 +1,6 @@
 #include "lua-starnet.h"
 #include "lua-netpack.h"
+#include "lua-sharedata.h"
 #include "stdint.h"
 #include "starnet.h"
 #include "starnet_service.h"
@@ -60,6 +61,9 @@ void LuaAPI::Register(lua_State *luaState) {
     //网络封包/粘包半包处理子表（对齐 skynet netpack）
     LuaNetpack::Register(luaState);
     lua_setfield(luaState, -2, "netpack");
+    //共享只读数据子表（对齐 skynet sharedata）
+    LuaSharedata::Register(luaState);
+    lua_setfield(luaState, -2, "sharedata");
     lua_setglobal(luaState, "starnet");
 }
 

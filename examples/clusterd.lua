@@ -193,11 +193,11 @@ end
 function command.call(_, node, addr, payload)
     local ok, resp_ok, resp = pcall(request, node, addr, payload, true)
     if not ok then
-        starnet.error("cluster call " .. node .. " fail: " .. tostring(resp_ok))
+        starnet.log("cluster call " .. node .. " fail: " .. tostring(resp_ok))
         return starnet.ret(nil)
     end
     if not resp_ok then
-        starnet.error("cluster call " .. node .. " error: " .. tostring(resp))
+        starnet.log("cluster call " .. node .. " error: " .. tostring(resp))
         return starnet.ret(nil)
     end
     return starnet.ret(resp)
@@ -206,7 +206,7 @@ end
 function command.send(_, node, addr, payload)
     local ok, err = pcall(request, node, addr, payload, false)
     if not ok then
-        starnet.error("cluster send " .. node .. " fail: " .. tostring(err))
+        starnet.log("cluster send " .. node .. " fail: " .. tostring(err))
     end
     return starnet.ret(true)
 end

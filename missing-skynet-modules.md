@@ -149,6 +149,12 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - **cluster：✅ 已补（简化版，全 Lua，C++ 零改动）**——`lualib/starnet/cluster.lua`（客户端 API：`open/call/send/query/register/unregister/reload`）+ `examples/clusterd.lua`（每节点一个，统一管理出站/入站连接，简化合并 skynet 的 `clusterd`/`clustersender`/`clusteragent`/`cluster.core`/`gate`）。
 - **datacenter / datacenterd（不做）**：全局共享数据服务，游戏服务器可用 sharedata/共享内存替代，暂缓。
 
+### 共享只读数据（`sharedata`）
+
+- **sharedata：✅ 已补（引擎内精简版）**——跨服务共享同一份只读数据、零拷贝直查（**不走消息队列**）。`include/starnet_sharedata.h` + `src/starnet_sharedata.cpp`（紧凑只读表：数组段 + 哈希段开放寻址/碰撞链，对齐 `lua-sharedata.c`；全局表 `name → TableState{表, 版本号, 脏标记}`，`shared_mutex` 读写分离；**延迟回收由 `shared_ptr` 引用计数天然实现**——box userdata 持副本，GC 后旧版释放）+ `lualib-src/lua-sharedata.cpp`（`starnet.sharedata` 子表：`query/new/update/delete/exist/version/copy` + box 只读视图 metatable `__index/__pairs/__len/__gc`，嵌套表访问递归子 box）+ `lualib/starnet/sharedata.lua`（`query/new/update/delete/deepcopy/subscribe`，本地缓存按版本号失效；`subscribe` 为**轮询简化版**）。
+- **简化点（相对 skynet）**：不做 `sharedatad` 服务（写入 API 直接 C 绑定，文档注明建议由单一业务服务负责加载/热更）；不做 monitor/confirm 订阅推送与引用计数往返（box `__gc` C 侧直接扣引用）；不做 Shared short string / Shared Proto 的 3rd/lua 替换（单独立项）。
+- **`sharetable` / `datasheet`（待补）**：sharetable 为共享表只读优化（需 C 层，优先级低）；datasheet 为读表驱动框架（业务层实现即可）。
+
 ### 标准服务集（`service/`）
 
 | 服务 | 用途 |
@@ -157,7 +163,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `launcher.lua` / `bootstrap.lua` | 启动流程、配置加载 |
 | `debug_console.lua` / `console.lua` / `dbg.lua` | 调试控制台 |
 | `snaxd.lua` / `service_mgr` / `service_cell` | SNAX 框架 |
-| `sharedatad.lua` | 共享数据分发 |
+| `sharedatad.lua` | 共享数据分发（本期用 `starnet.sharedata` C 绑定直写替代，见「共享只读数据」） |
 | `log.lua` / `cmemory.lua` | 日志 / 内存统计服务 |
 
 ### lualib 库（`lualib/`）
@@ -166,7 +172,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - `queue.lua` / `mqueue.lua`：消息队列协程
 - `snax`：集群化 RPC 框架
 - `sproto` / `seri`：协议序列化
-- `sharedata` / `sharetable` / `datasheet`：共享只读数据
+- **`sharedata`（✅ 已补，见上「共享只读数据」）/ `sharetable`（待补）/ `datasheet`（待补）**：共享只读数据
 - **`cluster`（✅ 已补，见上「集群 / 分布式」）/ `harbor`（不做）/ `datacenter` / `multicast` / `stm`**
 - `require.lua` / `codecache`：模块加载与代码缓存
 - `debug.lua` / `profile.lua`：调试与性能分析
@@ -189,7 +195,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、标准服务集、lualib | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、sharedata（✅ 已补，引擎内精简版 / sharetable、datasheet 待补）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、标准服务集、lualib | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
 
