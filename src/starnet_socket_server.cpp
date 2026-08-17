@@ -411,23 +411,27 @@ void SocketServer::EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<
     starnet_error("EntireWriteWhenEmpty write error, fd=%d errno=%d", fd, errno);
 }
 
-//（写缓冲）有待写数据，添加到末尾
-void SocketServer::EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len) {
+//（写缓冲）有待写数据，添加到末尾（high=objs，low=low，对齐 skynet append_sendbuffer / append_sendbuffer_low）
+void SocketServer::EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len, bool low) {
     auto obj = make_shared<WriteObject>();
     obj->start = 0;
     obj->buff = buff;
     obj->len = len;
-    wb.objs.push_back(obj);
+    if(low) {
+        wb.low.push_back(obj);
+    } else {
+        wb.objs.push_back(obj);
+    }
 }
 
-//返回值:是否完整的写入了一条
-bool SocketServer::WriteFrontObj(int fd, ConnWriteBuffer& wb) {
+//返回值:1=完整的写入了一条，0=部分写或EAGAIN（数据留在队头），-1=错误
+int SocketServer::WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst) {
     //没待写数据
-    if(wb.objs.empty()) {
-        return false;
+    if(lst.empty()) {
+        return 0;
     }
     //获取第一条
-    auto obj = wb.objs.front();
+    auto obj = lst.front();
 
     //谨记：>=0, -1&&EAGAIN, -1&&EINTR, -1&&其他
     char* s = obj->buff.get() + obj->start;
@@ -436,21 +440,22 @@ bool SocketServer::WriteFrontObj(int fd, ConnWriteBuffer& wb) {
     if(n < 0 && errno == EINTR) { }; //仅提醒你要注意
     //情况1-1：全部写完
     if(n >= 0 && n == len) {
-        wb.objs.pop_front(); //出队
-        return true;
+        lst.pop_front(); //出队
+        return 1;
     }
     //情况1-2：写一部分（或没写入）
     if( (n > 0 && n < len) || (n < 0 && errno == EAGAIN) ) {
         obj->start += n;
-        return false;
+        return 0;
     }
     //情况1-3：真的发生错误
-    starnet_error("WriteFrontObj write error, fd=%d errno=%d", fd, errno);
-    return false;
+    starnet_error("WriteFrontFromList write error, fd=%d errno=%d", fd, errno);
+    return -1;
 }
 
-//（写缓冲）发送缓冲（worker线程调用）
-int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len) {
+//（写缓冲）发送缓冲（worker线程调用；low=true 走低优先级队列）
+//对齐 skynet send_socket：缓冲空时即使 LOW 也进 high（空缓冲直写，写不完的部分进 high）
+int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len, bool low) {
     if(GetConn(fd) == NULL) {
         return -1;
     }
@@ -464,13 +469,13 @@ int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len) {
                 pthread_spin_unlock(&writeBuffersLock);
                 return -1;
             }
-            //情况1：没有待写入数据，先尝试写入
-            if(wb.objs.empty()) {
+            //情况1：没有待写入数据（high 与 low 都空），先尝试写入
+            if(wb.objs.empty() && wb.low.empty()) {
                 EntireWriteWhenEmpty(fd, wb, buff, len);
             }
-            //情况2：有待写入数据，添加到末尾
+            //情况2：有待写入数据，按优先级添加到末尾
             else {
-                EntireWriteWhenNotEmpty(wb, buff, len);
+                EntireWriteWhenNotEmpty(wb, buff, len, low);
             }
         }
         pthread_spin_unlock(&wb.lock);
@@ -480,6 +485,7 @@ int SocketServer::SendBuffer(int fd, shared_ptr<char> buff, size_t len) {
 }
 
 //（写缓冲）EPOLLOUT 触发时刷写（socket线程调用）
+//对齐 skynet send_buffer_：1.刷 high 发到空 2.high 空再刷 low 3.low 头半包挪到 high 尾继续 4.都空关 EPOLLOUT
 void SocketServer::OnWriteable(int fd) {
     auto conn = GetConn(fd);
     if(conn == NULL){ //连接已关闭
@@ -495,10 +501,25 @@ void SocketServer::OnWriteable(int fd) {
             ConnWriteBuffer& wb = iter->second;
             pthread_spin_lock(&wb.lock);
             {
-                while(WriteFrontObj(fd, wb)) {
+                //step1：刷 high（objs）发到空
+                while(WriteFrontFromList(fd, wb.objs) == 1) {
                     //循环
                 }
-                if(wb.objs.empty()) {
+                //step2：high 空，刷 low
+                if(wb.objs.empty() && !wb.low.empty()) {
+                    while(WriteFrontFromList(fd, wb.low) == 1) {
+                        //循环
+                    }
+                    //step3：low 头未完整写完（部分写或 EAGAIN），挪到 high 尾继续
+                    //（对齐 skynet raise_uncomplete：防新 high 数据插到半包前导致 TCP 乱序）
+                    if(!wb.low.empty()) {
+                        auto obj = wb.low.front();
+                        wb.low.pop_front();
+                        wb.objs.push_back(obj);
+                    }
+                }
+                //step4：都空
+                if(wb.objs.empty() && wb.low.empty()) {
                     emptied = true;
                     needNotify = wb.isClosing;
                 }
@@ -555,7 +576,7 @@ void SocketServer::LingerClose(int fd) {
                 return;
             }
             wb.isClosing = true;
-            empty = wb.objs.empty();
+            empty = wb.objs.empty() && wb.low.empty();
         }
         pthread_spin_unlock(&wb.lock);
     }

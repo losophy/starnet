@@ -44,8 +44,8 @@ public:
     //网络连接操作接口（用原始read write）
     int Listen(uint32_t port, uint32_t serviceId);
     void CloseConn(uint32_t fd);
-    //发送缓冲（转发到SocketIO引擎写缓冲）
-    int Write(int fd, shared_ptr<char> buff, size_t len);
+    //发送缓冲（转发到SocketIO引擎写缓冲；low=true 走低优先级队列，对齐 skynet send_lowpriority）
+    int Write(int fd, shared_ptr<char> buff, size_t len, bool low = false);
     //UDP（对齐 skynet socket_server_udp_*：创建 / 设默认对端 / 发送）
     int Udp(uint32_t serviceId, const char* addr, int port, bool bind_);
     int SetUdpAddress(int fd, const char* addr, int port);

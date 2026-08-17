@@ -16,9 +16,11 @@ struct WriteObject {
     shared_ptr<char> buff;
 };
 
-//连接写缓冲（对齐 socket_server.c 中 socket 的 wb_list）
+//连接写缓冲（对齐 socket_server.c 中 socket 的 wb_list：high/low 双队列）
+//high=objs（高优先级，优先刷完）、low（低优先级，high 空才刷；不丢包仅排后，对齐 skynet send_lowpriority）
 struct ConnWriteBuffer {
     list<shared_ptr<WriteObject>> objs;
+    list<shared_ptr<WriteObject>> low;
     bool isClosing = false;
     pthread_spinlock_t lock;
     ConnWriteBuffer() {
@@ -47,8 +49,8 @@ public:
     void AddEvent(int fd);
     void RemoveEvent(int fd);
     void ModifyEvent(int fd, bool epollOut);
-    //写缓冲（跨线程：worker线程发送，socket线程刷写）
-    int SendBuffer(int fd, shared_ptr<char> buff, size_t len);
+    //写缓冲（跨线程：worker线程发送，socket线程刷写；low=true 走低优先级队列，对齐 skynet send_lowpriority）
+    int SendBuffer(int fd, shared_ptr<char> buff, size_t len, bool low = false);
     void OnWriteable(int fd);
     void LingerClose(int fd);
     //UDP：创建 socket（addr/port 非空则 bind，bind_=true 对齐 skynet udp_listen；addr 空则任意地址）
@@ -73,8 +75,9 @@ private:
     void OnConnectFinish(shared_ptr<Conn> conn);
     //写缓冲内部
     void EntireWriteWhenEmpty(int fd, ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);
-    void EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len);
-    bool WriteFrontObj(int fd, ConnWriteBuffer& wb);
+    void EntireWriteWhenNotEmpty(ConnWriteBuffer& wb, shared_ptr<char> buff, size_t len, bool low);
+    //刷写指定队列（返回：1=完整写完一条，0=部分写或EAGAIN，-1=错误）
+    int WriteFrontFromList(int fd, list<shared_ptr<WriteObject>>& lst);
 private:
     //epoll描述符
     int epollFd;

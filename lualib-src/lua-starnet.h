@@ -23,6 +23,8 @@ public:
     static int Listen(lua_State *luaState);
     static int CloseConn(lua_State *luaState);
     static int Write(lua_State *luaState);
+    //写套接字（低优先级，对齐 skynet socket.send_low）
+    static int WriteLow(lua_State *luaState);
 
     //主动连接（对齐 skynet c.connect）
     static int Connect(lua_State *luaState);

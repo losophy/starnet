@@ -241,9 +241,9 @@ void Starnet::ModifyEvent(int fd, bool epollOut) {
     socketServer->ModifyEvent(fd, epollOut);
 }
 
-//发送缓冲（转发到SocketIO引擎写缓冲）
-int Starnet::Write(int fd, shared_ptr<char> buff, size_t len) {
-    return socketServer->SendBuffer(fd, buff, len);
+//发送缓冲（转发到SocketIO引擎写缓冲；low=true 走低优先级队列）
+int Starnet::Write(int fd, shared_ptr<char> buff, size_t len, bool low) {
+    return socketServer->SendBuffer(fd, buff, len, low);
 }
 
 //UDP：创建 socket（对齐 skynet socket_server_udp / udp_listen）

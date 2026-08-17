@@ -31,6 +31,7 @@ void LuaAPI::Register(lua_State *luaState) {
         { "Listen", Listen },
         { "CloseConn", CloseConn },
         { "Write", Write },
+        { "WriteLow", WriteLow },
         { "Connect", Connect },
         { "Bind", Bind },
         { "Udp", Udp },
@@ -247,6 +248,32 @@ int LuaAPI::Write(lua_State *luaState){
     memcpy(newstr, buff, len);
     //处理（走SocketIO引擎写缓冲）
     int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr, std::default_delete<char[]>()), len);
+    //返回值
+    lua_pushinteger(luaState, r);
+    return 1;
+}
+
+//写套接字（低优先级，对齐 skynet socket.send_low：high 队列刷完才刷 low，不丢包仅排后）
+int LuaAPI::WriteLow(lua_State *luaState){
+    //参数1：fd
+    if(lua_isinteger(luaState, 1) == 0) {
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    int fd = lua_tointeger(luaState, 1);
+    //参数2：buff
+    if(lua_isstring(luaState, 2) == 0){
+        lua_pushinteger(luaState, -1);
+        return 1;
+    }
+    size_t len = 0;
+    const char *buff = lua_tolstring(luaState, 2, &len);
+    //拷贝缓冲（Lua字符串内存可能被GC回收）
+    //注意：new char[] 必须配数组 deleter，否则 delete 释放数组是 UB
+    char *newstr = new char[len];
+    memcpy(newstr, buff, len);
+    //处理（走低优先级队列）
+    int r = Starnet::inst->Write(fd, shared_ptr<char>(newstr, std::default_delete<char[]>()), len, true);
     //返回值
     lua_pushinteger(luaState, r);
     return 1;
