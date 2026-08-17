@@ -5,6 +5,7 @@
 #include "starnet_logger.h"
 #include "starnet_env.h"
 #include "starnet_mem.h"
+#include "starnet_daemon.h"
 #include <iostream>
 #include <assert.h>
 #include <vector>
@@ -39,6 +40,11 @@ static void handle_exit_signal(int) {
 void Starnet::Start(StarnetConfig& cfg) {
     //保存配置
     config = cfg;
+    //守护进程化（对齐 skynet_start 的 daemon_init：pidfile 非空则后台运行）
+    //必须在任何线程/logger 创建之前：fork 后子进程仅调用线程，多线程 fork 必死锁
+    if(!config.daemon.empty() && starnet_daemon_init(config.daemon.c_str())) {
+        exit(1);
+    }
     //初始化环境配置并导入 config 全部键（对齐 skynet_env + config 搬全局）
     starnet_env_init();
     for(auto& kv : config.env) {
@@ -84,6 +90,10 @@ string Starnet::GetLuaPath() {
 //等待
 void Starnet::Wait() {
     start->Wait();
+    //优雅退出完成：删除 pidfile（daemon 模式；对齐 skynet_start 末尾的 daemon_exit）
+    if(!config.daemon.empty()) {
+        starnet_daemon_exit(config.daemon.c_str());
+    }
 }
 
 //新建服务（对齐 skynet_context_new + skynet_handle_register，0 保留）

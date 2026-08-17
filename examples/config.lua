@@ -15,6 +15,9 @@ return {
     harbor = 0,
     daemon = false,
     profile = false,
+    --守护进程化：daemon 配置 pidfile 字符串则后台运行（对齐 skynet daemon；布尔 false 进 env 供查询）
+    --注意：daemon 模式下 stdio 被重定向到 /dev/null，必须配置 logger 文件才有日志（对齐 skynet）
+    --daemon = "./starnet.pid",
     --演示自定义配置
     test_config = "hello from config",
 }

@@ -16,6 +16,8 @@ struct StarnetConfig {
     string luaPath;
     //日志输出文件（对齐 skynet 的 logger）；空串表示写 stderr
     string logger;
+    //守护进程化 pidfile（对齐 skynet 的 daemon）；空串表示前台运行
+    string daemon;
     //完整配置 k/v（对齐 skynet env：config 全部顶层标量键，运行时可 getenv/setenv 查询修改）
     unordered_map<string, string> env;
 

@@ -17,6 +17,7 @@ StarnetConfig StarnetConfig::Default() {
     cfg.thread = 3;
     cfg.luaPath = "../lualib/?.lua";
     cfg.logger = "";  //默认 stderr
+    cfg.daemon = "";  //默认前台运行
     return cfg;
 }
 
@@ -71,6 +72,12 @@ StarnetConfig StarnetConfig::Load(const char* filename) {
         lua_getfield(L, -1, "logger");
         if(lua_isstring(L, -1)) {
             cfg.logger = lua_tostring(L, -1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, -1, "daemon");
+        if(lua_isstring(L, -1)) {
+            cfg.daemon = lua_tostring(L, -1);
         }
         lua_pop(L, 1);
 

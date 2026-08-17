@@ -40,6 +40,8 @@ cd build
 | `start` | 启动服务名 | `main` |
 | `thread` | worker 线程数 | `8`（对齐 skynet 标准；覆盖 weight 表，避免全部 -1） |
 | `luaPath` | Lua 模块搜索路径（`lualib/` 宿主库，对齐 skynet `lua_path`） | `../lualib/?.lua` |
+| `logger` | 日志输出文件（空串写 stderr） | `""` |
+| `daemon` | 守护进程化 pidfile（配字符串则后台运行；**必须同时配 `logger` 文件**，否则 daemon 后 stdio 进 `/dev/null` 日志丢失，对齐 skynet） | `""`（前台） |
 
 参考 `examples/config.lua`。
 
