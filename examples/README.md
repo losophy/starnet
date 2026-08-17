@@ -42,6 +42,7 @@ cd build
 | `luaPath` | Lua 模块搜索路径（`lualib/` 宿主库，对齐 skynet `lua_path`） | `../lualib/?.lua` |
 | `logger` | 日志输出文件（空串写 stderr） | `""` |
 | `daemon` | 守护进程化 pidfile（配字符串则后台运行；**必须同时配 `logger` 文件**，否则 daemon 后 stdio 进 `/dev/null` 日志丢失，对齐 skynet） | `""`（前台） |
+| `profile` | 性能统计开关（`starnet.cpu()/time()/message()` 查询；关闭时埋点零开销） | `true` |
 
 参考 `examples/config.lua`。
 

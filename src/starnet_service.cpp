@@ -1,5 +1,6 @@
 #include "starnet_service.h"
 #include "starnet.h"
+#include "starnet_timer.h"
 #include "starnet_logger.h"
 #include <iostream>
 #include <unistd.h>
@@ -35,6 +36,8 @@ static void ParseUdpAddr(const string& udpAddr, string& ip, int& port) {
 
 //构造函数
 Service::Service() {
+    //复制全局 profile 开关（对齐 skynet_context 的 ctx->profile = G_NODE.profile）
+    profile = starnet_profile_enabled();
 }
 
 //析构函数
@@ -50,7 +53,15 @@ bool Service::ProcessMsg() {
         if(overload) {
             starnet_error("error: May overload, message queue length = %d", overload);
         }
+        //性能统计：消息处理耗时（对齐 skynet dispatch_message 的 cpu_start/cpu_cost）
+        if(profile) {
+            cpuStart = starnet_thread_time();
+        }
         OnMsg(msg);
+        if(profile) {
+            cpuCost.fetch_add(starnet_thread_time() - cpuStart, std::memory_order_relaxed);
+        }
+        ++messageCount;
         return true;
     }
     else {

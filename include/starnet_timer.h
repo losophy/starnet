@@ -15,3 +15,11 @@ void starnet_updatetime();
 
 //当前tick（centisecond）
 uint64_t starnet_now();
+
+//性能统计（对齐 skynet_timer.c skynet_thread_time / skynet_profile_enable）：
+//当前线程 CPU 时间，微秒（CLOCK_THREAD_CPUTIME_ID）
+uint64_t starnet_thread_time();
+
+//全局 profile 开关（默认开，对齐 skynet optboolean("profile",1)）；服务构造时复制到自身 profile
+void starnet_profile_enable(int enable);
+bool starnet_profile_enabled();

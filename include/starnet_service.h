@@ -29,6 +29,11 @@ public:
     StarnetMQ mq;
     //RPC会话号自增（对齐 skynet_context.session，C侧 genid 分配）
     uint32_t sessionGen = 0;
+    //性能统计（对齐 skynet_context 的 cpu_cost/cpu_start/message_count/profile）
+    bool profile = false;                        //本服务 profile 开关（构造时复制全局开关）
+    uint64_t cpuStart = 0;                       //当前消息处理起点（微秒，仅 worker 线程内访问）
+    std::atomic<uint64_t> cpuCost{0};            //累计消息处理 CPU 时间（微秒）
+    std::atomic<uint64_t> messageCount{0};       //累计处理消息数
 public:       
     //构造和析构函数
     Service();

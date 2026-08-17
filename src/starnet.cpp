@@ -70,6 +70,8 @@ void Starnet::Start(StarnetConfig& cfg) {
     starnet_handle_init();  //名字服务初始化（对齐 skynet_handle_init）
     //初始化定时器（对齐 skynet_start 的 skynet_timer_init）
     starnet_timer_init();
+    //性能统计开关（对齐 skynet_start 的 skynet_profile_enable(config->profile)）
+    starnet_profile_enable(config.profile);
     //开启系统线程池
     start = new StarnetStart();
     start->SetWorkerNum(config.thread);

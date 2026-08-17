@@ -56,6 +56,11 @@ void LuaAPI::Register(lua_State *luaState) {
         //优雅全局退出（业务主动触发停机）
         { "globalexit", GlobalExit },
 
+        //性能统计（对齐 skynet.cpu()/time()/message()）
+        { "cpu", Cpu },
+        { "time", Time },
+        { "message", Message },
+
         { "timeout", Timeout },
         { NULL, NULL }
     };
@@ -519,6 +524,41 @@ int LuaAPI::Log(lua_State *luaState){
 int LuaAPI::GlobalExit(lua_State *luaState){
     Starnet::inst->RequestExit();
     return 0;
+}
+
+//性能统计：当前服务累计处理消息的 CPU 时间（秒，对齐 skynet.cpu）
+int LuaAPI::Cpu(lua_State *luaState){
+    Service* srv = GetCurrentService(luaState);
+    if(!srv) {
+        lua_pushnumber(luaState, 0);
+        return 1;
+    }
+    double t = (double)srv->cpuCost.load(std::memory_order_relaxed) / 1000000.0;
+    lua_pushnumber(luaState, t);
+    return 1;
+}
+
+//性能统计：当前正在处理消息的耗时（秒；profile 关闭返回 0，对齐 skynet.time）
+int LuaAPI::Time(lua_State *luaState){
+    Service* srv = GetCurrentService(luaState);
+    if(!srv || !srv->profile) {
+        lua_pushnumber(luaState, 0);
+        return 1;
+    }
+    double t = (double)(starnet_thread_time() - srv->cpuStart) / 1000000.0;
+    lua_pushnumber(luaState, t);
+    return 1;
+}
+
+//性能统计：当前服务累计处理消息数（对齐 skynet 的 cmd_stat "message"）
+int LuaAPI::Message(lua_State *luaState){
+    Service* srv = GetCurrentService(luaState);
+    if(!srv) {
+        lua_pushinteger(luaState, 0);
+        return 1;
+    }
+    lua_pushinteger(luaState, (lua_Integer)srv->messageCount.load(std::memory_order_relaxed));
+    return 1;
 }
 
 //注册定时器

@@ -2,6 +2,7 @@
 #include "starnet_logger.h"
 #include <iostream>
 #include <stdio.h>
+#include <string.h>
 
 extern "C" {
     #include "lua.h"
@@ -18,6 +19,7 @@ StarnetConfig StarnetConfig::Default() {
     cfg.luaPath = "../lualib/?.lua";
     cfg.logger = "";  //默认 stderr
     cfg.daemon = "";  //默认前台运行
+    cfg.profile = true;  //默认开（对齐 skynet optboolean("profile",1)）
     return cfg;
 }
 
@@ -78,6 +80,15 @@ StarnetConfig StarnetConfig::Load(const char* filename) {
         lua_getfield(L, -1, "daemon");
         if(lua_isstring(L, -1)) {
             cfg.daemon = lua_tostring(L, -1);
+        }
+        lua_pop(L, 1);
+
+        lua_getfield(L, -1, "profile");
+        if(lua_isboolean(L, -1)) {
+            cfg.profile = lua_toboolean(L, -1);
+        }
+        else if(lua_isstring(L, -1)) {
+            cfg.profile = strcmp(lua_tostring(L, -1), "true") == 0;
         }
         lua_pop(L, 1);
 

@@ -159,7 +159,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 - `skynet_globalexit` / `skynet_context_dispatchall`：优雅全局退出——**✅ 已补**（SIGINT/SIGTERM → 退出请求 → `KillAllServices` 触发各服务 `OnExit`/lua_close + 残留消息回 `PTYPE_ERROR`（= `dispatchall` 排空语义）→ worker 处理完队列到空退出 → socket 线程 eventfd 唤醒后 `CloseAll` 收尾 → 主线程 join 全部线程；Lua 侧 `starnet.globalexit()` 业务主动触发）
 - `skynet_daemon.c`：守护进程化——**✅ 已补**（`config.daemon` 配 pidfile 字符串则后台运行：查重 → `daemon(1,1)` fork+setsid → flock 写 pidfile → stdio 重定向 /dev/null；退出删 pidfile。注意 daemon 模式必须配 `logger` 文件才有日志；也可用 systemd/supervisor 替代）
-- `skynet_profile_enable`：性能统计——需 hook worker 消息路径，暂缓
+- `skynet_profile_enable`：性能统计——**✅ 已补**（`starnet_thread_time()` 读 `CLOCK_THREAD_CPUTIME_ID`；`config.profile` 全局开关默认开，服务构造时复制；`ProcessMsg` 每条消息前后统计 `cpuCost`/`messageCount`（profile 关闭零开销）；Lua 侧 `starnet.cpu()` 累计 CPU 秒、`starnet.time()` 当前消息耗时、`starnet.message()` 累计消息数）
 
 ---
 
@@ -173,7 +173,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、sharedata（✅ 已补，引擎内精简版 / sharetable、datasheet 待补）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、进程级能力（优雅退出 ✅ 已补、daemon ✅ 已补，profile 暂缓）；标准服务集与 lualib → 业务层，见 `business-layer-modules.md` | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、sharedata（✅ 已补，引擎内精简版 / sharetable、datasheet 待补）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、进程级能力（优雅退出 ✅ 已补、daemon ✅ 已补、profile ✅ 已补）；标准服务集与 lualib → 业务层，见 `business-layer-modules.md` | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
 

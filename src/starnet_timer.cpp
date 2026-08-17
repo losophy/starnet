@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <iostream>
+#include <time.h>
+#include <atomic>
 
 #define TIME_NEAR_SHIFT 8
 #define TIME_NEAR (1 << TIME_NEAR_SHIFT)
@@ -251,4 +253,29 @@ starnet_timer_init(void) {
     systime(&TI->starttime, &current);
     TI->current = current;
     TI->current_point = gettime();
+}
+
+//性能统计（对齐 skynet_timer.c 的 skynet_thread_time / skynet_profile_enable）
+
+#define TIMER_MICROSEC 1000000
+
+//当前线程 CPU 时间（微秒，CLOCK_THREAD_CPUTIME_ID）
+uint64_t
+starnet_thread_time(void) {
+    struct timespec ti;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ti);
+    return (uint64_t)ti.tv_sec * TIMER_MICROSEC + (uint64_t)ti.tv_nsec / 1000;
+}
+
+//全局 profile 开关（默认开，对齐 skynet optboolean("profile",1)）
+static std::atomic<bool> g_profile_enable{true};
+
+void
+starnet_profile_enable(int enable) {
+    g_profile_enable.store(enable != 0, std::memory_order_relaxed);
+}
+
+bool
+starnet_profile_enabled(void) {
+    return g_profile_enable.load(std::memory_order_relaxed);
 }

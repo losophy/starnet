@@ -60,5 +60,10 @@ public:
     //优雅全局退出（对齐 skynet：业务主动触发停机，引擎排空 + 收尾）
     static int GlobalExit(lua_State *luaState);
 
+    //性能统计（对齐 skynet.cpu()/skynet.time()/skynet.message()：当前服务累计 CPU 秒 / 当前消息耗时秒 / 累计消息数）
+    static int Cpu(lua_State *luaState);
+    static int Time(lua_State *luaState);
+    static int Message(lua_State *luaState);
+
     static int Timeout(lua_State *luaState);
 };

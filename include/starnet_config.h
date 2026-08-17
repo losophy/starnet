@@ -18,6 +18,8 @@ struct StarnetConfig {
     string logger;
     //守护进程化 pidfile（对齐 skynet 的 daemon）；空串表示前台运行
     string daemon;
+    //性能统计开关（对齐 skynet 的 profile；服务构造时复制到自身）
+    bool profile;
     //完整配置 k/v（对齐 skynet env：config 全部顶层标量键，运行时可 getenv/setenv 查询修改）
     unordered_map<string, string> env;
 
