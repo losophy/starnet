@@ -140,7 +140,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - **绑定已有 fd**：✅ 已补（`starnet.socket.bind(fd)` 接管外部 socket，引擎不负责 close，见现状表「绑定已有 fd」行）。
 - **写缓冲优先级**：✅ 已补（`starnet.socket.write_low(fd, msg)`，high/low 双队列：high 刷完才刷 low、low 不丢包仅排后、low 半包 raise 到 high 尾防乱序，见现状表「写缓冲优先级」行）。
 - **连接控制**：✅ 已补（`starnet.socket.nodelay/pause/start/shutdown`，见现状表「连接控制」行）。
-- **accept 细节**：starnet `SocketServer::OnAccept` 只 accept 一次，ET 模式应循环到 EAGAIN。
+- **accept 细节**：✅ 已补——starnet 用 **ET 模式**（skynet 用 LT 不会漏，ET 只通知一次），`SocketServer::OnAccept` 原只 accept 一次会漏连接；现已**循环 accept 到 EAGAIN** 清空队列，accept 失败（EAGAIN 正常结束；EMFILE/ENFILE 记日志跳出）不再把 -1 注册进管理表。未加 skynet 的 reserve_fd 技巧（fd 耗尽不常见；ET 下释放 fd 后下个新连接即可恢复）。
 - **读缓冲**：starnet 无 per-conn 读缓冲累积。
 
 ### 集群 / 分布式

@@ -81,30 +81,40 @@ void SocketServer::SetListener(SocketServerListener* listener) {
 //新连接
 void SocketServer::OnAccept(shared_ptr<Conn> conn) {
     starnet_log("OnAccept listenFd:%d", conn->fd);
-    //步骤1：accept
-    int clientFd = accept(conn->fd, NULL, NULL);
-    if (clientFd < 0) {
-        starnet_error("accept error, errno=%d", errno);
-    }
-    //步骤2：设置非阻塞
-    fcntl(clientFd, F_SETFL, O_NONBLOCK);
-    //步骤3：添加到管理结构
-    AddConn(clientFd, conn->serviceId, Conn::TYPE::CLIENT);
-    //步骤4：添加到epoll
-    struct epoll_event ev;
-	ev.events = EPOLLIN | EPOLLET;
-	ev.data.fd = clientFd;
-	if (epoll_ctl(epollFd, EPOLL_CTL_ADD, clientFd, &ev) == -1) {
-		starnet_error("OnAccept epoll_ctl Fail:%s", strerror(errno));
-	}
-    //步骤5：通知（事件出口，由桥接层投递）
-    auto msg = make_shared<SocketMsg>();
-    msg->type = BaseMsg::TYPE::SOCKET;
-    msg->subtype = SocketMsg::SUBTYPE::ACCEPT;
-    msg->listenFd = conn->fd;
-    msg->fd = clientFd;
-    if(listener) {
-        listener->OnSocketMsg(msg, conn->serviceId);
+    //ET 模式：可读时只通知一次，必须循环 accept 到 EAGAIN 清空队列，否则剩余连接滞留（对齐 skynet LT 不会漏，starnet 用 ET 必须循环）
+    while(true) {
+        //步骤1：accept
+        int clientFd = accept(conn->fd, NULL, NULL);
+        if(clientFd < 0) {
+            //EAGAIN/EWOULDBLOCK：队列已空，正常结束
+            if(errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            //其他错误（EMFILE/ENFILE 等资源耗尽）：记日志跳出，不再把 -1 当连接注册
+            //（fd 耗尽期间 accept 暂停、连接堆积；有连接释放后下个新连接触发即可恢复）
+            starnet_error("accept error, errno=%d", errno);
+            break;
+        }
+        //步骤2：设置非阻塞
+        fcntl(clientFd, F_SETFL, O_NONBLOCK);
+        //步骤3：添加到管理结构
+        AddConn(clientFd, conn->serviceId, Conn::TYPE::CLIENT);
+        //步骤4：添加到epoll
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLET;
+        ev.data.fd = clientFd;
+        if(epoll_ctl(epollFd, EPOLL_CTL_ADD, clientFd, &ev) == -1) {
+            starnet_error("OnAccept epoll_ctl Fail:%s", strerror(errno));
+        }
+        //步骤5：通知（事件出口，由桥接层投递）
+        auto msg = make_shared<SocketMsg>();
+        msg->type = BaseMsg::TYPE::SOCKET;
+        msg->subtype = SocketMsg::SUBTYPE::ACCEPT;
+        msg->listenFd = conn->fd;
+        msg->fd = clientFd;
+        if(listener) {
+            listener->OnSocketMsg(msg, conn->serviceId);
+        }
     }
 }
 
