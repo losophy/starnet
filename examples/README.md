@@ -86,7 +86,7 @@ end)
 | `starnet.socket.close(fd)` | 关闭连接 | `skynet.socket.close` |
 | `starnet.socket.connect(host, port)` | 主动连接（非阻塞）：返回 fd；成功 `dispatch("connect", fd, ip)`，失败 `dispatch("error", fd, err)` | `skynet.socket.connect` |
 | `starnet.socket.bind(fd)` | 绑定已有 fd（接管外部创建的 socket，类型自动识别，引擎不负责 close） | `skynet.socket.bind` |
-| `starnet.socket.nodelay(fd)` | TCP_NODELAY 关 Nagle（游戏交互协议必须） | `skynet.socket.nodelay` |
+| `starnet.socket.nodelay(fd)` | TCP_NODELAY 关 Nagle（游戏交互协议必须；服务端 accept 的连接已默认开启，此接口主要给 connect 的连接用） | `skynet.socket.nodelay` |
 | `starnet.socket.pause(fd)` / `starnet.socket.start(fd)` | 暂停读 / 恢复读（流控） | `skynet.socket.pause` / `skynet.socket.start` |
 | `starnet.socket.shutdown(fd)` | 优雅关闭：写缓冲发完再关 | `skynet.socket.shutdown` |
 | `starnet.socket.udp(addr, port)` / `starnet.socket.udp_connect(addr, port)` / `starnet.socket.send_udp(fd, msg, addr, port)` | UDP：监听 / 连接（默认对端）/ 发送（addr 空用默认对端） | `skynet.udp` / `skynet.udp_connect` / `skynet.send_udp` |

@@ -97,6 +97,11 @@ void SocketServer::OnAccept(shared_ptr<Conn> conn) {
         }
         //步骤2：设置非阻塞
         fcntl(clientFd, F_SETFL, O_NONBLOCK);
+        //步骤2.1：默认关 Nagle（TCP_NODELAY）
+        //游戏服务器小包协议，低延迟刚需；UE 客户端实现不统一，不能依赖对端自己调
+        //（偏离 skynet 由业务显式调 nodelay：服务端 accept 的连接服务端兜底设置）
+        int one = 1;
+        setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
         //步骤3：添加到管理结构
         AddConn(clientFd, conn->serviceId, Conn::TYPE::CLIENT);
         //步骤4：添加到epoll
