@@ -10,6 +10,7 @@
 #include <atomic>
 #include <unordered_map>
 #include <shared_mutex>
+#include <mutex>
 
 namespace starnet_sharedata {
 
@@ -79,7 +80,7 @@ public:
 
 private:
     const SharedValue* LookupArray(long long key) const;
-    const SharedValue* LookupHash(const SharedKey &key) const;
+    const SharedNode* LookupHash(const SharedKey &key) const;
     bool NextHashSlot(size_t start, SharedKey &outKey, const SharedValue *&outVal) const;
     void FillNoColliding(const std::vector<std::pair<SharedKey, SharedValue>> &items, size_t size);
     void FillColliding(const std::vector<std::pair<SharedKey, SharedValue>> &items, size_t size);

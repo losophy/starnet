@@ -66,7 +66,7 @@ starnet.PTYPE_SNAX = PTYPE_SNAX
 local proto = {}
 
 local function pack_string(...) return ... end
-local function unpack_string(...) return ... end
+local function unpack_string(msg, sz) return msg end
 
 function starnet.register_protocol(class)
     local name = class.name
@@ -228,6 +228,10 @@ local function dispatch_in_coroutine(f, ...)
     suspend(co, coroutine_resume(co, ...))
 end
 
+--socket 裸数据模式：跳过 netpack 帧解析，dispatch("socket") 直接收原始字节流
+--（聊天室等逐字节/逐行协议用，nc 等终端无需加 2 字节长度头；默认关，仍走帧协议）
+local raw_socket = false
+
 function starnet.dispatch_socket(subtype, a, b, c, d)
     if subtype == SKYNET_SOCKET_TYPE_ACCEPT then
         local p = proto["accept"]
@@ -254,19 +258,24 @@ function starnet.dispatch_socket(subtype, a, b, c, d)
             dispatch_in_coroutine(p.dispatch, a)  -- func(fd)
         end
     elseif subtype == SKYNET_SOCKET_TYPE_DATA then
-        --数据：netpack 解析粘包/半包，投递完整包（对齐 skynet netpack.filter + pop）
+        --数据：netpack 解析粘包/半包，投递完整包（对齐 skynet netpack.filter + pop）；
+        --rawdata 模式跳过解析，直接投递原始缓冲
         local p = proto["socket"]
         if p and p.dispatch then
-            local t, fd, msg = netpack.filter(netpack_queue, a, b, c)
-            while t == "data" or t == "more" do
-                dispatch_in_coroutine(p.dispatch, fd, msg)  -- func(fd, msg)
-                if t == "data" then
-                    break
-                end
-                --more：队列中还有完整包
-                fd, msg = netpack.pop(netpack_queue)
-                if not fd then
-                    break
+            if raw_socket then
+                dispatch_in_coroutine(p.dispatch, a, b)  -- func(fd, msg)
+            else
+                local t, fd, msg = netpack.filter(netpack_queue, a, b, c)
+                while t == "data" or t == "more" do
+                    dispatch_in_coroutine(p.dispatch, fd, msg)  -- func(fd, msg)
+                    if t == "data" then
+                        break
+                    end
+                    --more：队列中还有完整包
+                    fd, msg = netpack.pop(netpack_queue)
+                    if not fd then
+                        break
+                    end
                 end
             end
         end
@@ -366,6 +375,12 @@ starnet.socket = {}
 --监听（对齐 skynet.socket.listen）
 function starnet.socket.listen(port, id)
     return c.listen(port, id)
+end
+
+--启用裸数据模式（须在 dispatch("socket") 前调用）：跳过 netpack 帧解析，
+--dispatch("socket") 直接收原始字节流（聊天室等逐字节协议，nc 终端无需加长度头）
+function starnet.socket.rawdata()
+    raw_socket = true
 end
 
 --主动连接（对齐 skynet.socket.connect：非阻塞，返回 fd；成功投 dispatch("connect", fd, ip)，失败投 dispatch("error", fd, err)）

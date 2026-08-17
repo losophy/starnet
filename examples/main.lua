@@ -27,12 +27,16 @@ starnet.start(function()
     --演示 sleep（协程挂起 200 centisecond）
     starnet.sleep(200)
     print("[lua] main wake up after sleep")
-    --心跳：每 1 秒（回调式，对齐 skynet.timeout）
-    local function heartbeat()
-        print("[lua] main heartbeat")
-        starnet.timeout(100, heartbeat)
-    end
-    starnet.timeout(100, heartbeat)
+    --心跳演示（默认关闭，需要时打开下方注释）：每 1 秒回调一次（对齐 skynet.timeout）
+    --local beats = 0
+    --local function heartbeat()
+    --    beats = beats + 1
+    --    print("[lua] main heartbeat "..beats)
+    --    if beats < 5 then
+    --        starnet.timeout(100, heartbeat)
+    --    end
+    --end
+    --starnet.timeout(100, heartbeat)
 end)
 
 starnet.dispatch("lua", function(session, source, buff)

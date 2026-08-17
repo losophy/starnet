@@ -8,6 +8,7 @@
 #include "starnet.h"
 #include <iostream>
 #include <unistd.h>
+#include <functional>
 
 using namespace std;
 
@@ -66,8 +67,8 @@ void StarnetStart::StartSocket() {
     //创建桥接层并接线
     socketBridge = new SocketBridge();
     socketServer->SetListener(socketBridge);
-    //创建线程
-    socketThread = new thread(*socketServer);
+    //创建线程（std::ref 防拷贝：socket 线程必须在原对象上运行，拷贝会带独立 conns 导致事件查不到连接）
+    socketThread = new thread(std::ref(*socketServer));
 }
 
 //Timer线程驱动（对齐 skynet_start.c thread_timer：每2.5ms驱动一次）

@@ -1,6 +1,8 @@
 #include "lua-sharedata.h"
+extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
+}
 #include "starnet_sharedata.h"
 #include <string>
 #include <memory>

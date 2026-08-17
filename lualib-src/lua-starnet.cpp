@@ -648,7 +648,7 @@ int LuaAPI::SocketInfo(lua_State *luaState){
         return 1;
     }
     int fd = lua_tointeger(luaState, 1);
-    SocketInfo info;
+    ::SocketInfo info;
     if(!Starnet::inst->GetSocketInfo(fd, info)) {
         lua_pushnil(luaState);
         return 1;

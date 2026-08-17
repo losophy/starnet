@@ -97,7 +97,7 @@ const SharedValue* SharedTable::LookupArray(long long key) const {
 }
 
 //哈希段查找（对齐 skynet lookup_key）
-const SharedValue* SharedTable::LookupHash(const SharedKey &key) const {
+const SharedNode* SharedTable::LookupHash(const SharedKey &key) const {
     if (hash_.empty()) {
         return nullptr;
     }
@@ -109,11 +109,11 @@ const SharedValue* SharedTable::LookupHash(const SharedKey &key) const {
         if (key.hash == n->key.hash) {
             if (n->key.type == KEYTYPE_INTEGER) {
                 if (key.type == KEYTYPE_INTEGER && n->key.integer == key.integer) {
-                    return &n->value;
+                    return n;
                 }
             } else {
                 if (key.type == KEYTYPE_STRING && n->key.str == key.str) {
-                    return &n->value;
+                    return n;
                 }
             }
         }
@@ -133,11 +133,13 @@ const SharedValue* SharedTable::Lookup(const SharedKey &key) const {
         }
         SharedKey hk = key;
         hk.hash = (uint32_t)hk.integer;
-        return LookupHash(hk);
+        const SharedNode *n = LookupHash(hk);
+        return n ? &n->value : nullptr;
     }
     SharedKey hk = key;
     hk.hash = HashKey(hk.str);
-    return LookupHash(hk);
+    const SharedNode *n = LookupHash(hk);
+    return n ? &n->value : nullptr;
 }
 
 //哈希段槽位扫描（迭代按槽位顺序，对齐 skynet lnextkey）
@@ -202,6 +204,8 @@ SharedataStore& SharedataStore::inst() {
     static SharedataStore store;
     return store;
 }
+
+SharedataStore::SharedataStore() {}
 
 std::shared_ptr<TableState> SharedataStore::Query(const std::string &name) {
     std::shared_lock<std::shared_mutex> lock(lock_);

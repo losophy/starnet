@@ -116,11 +116,13 @@ end)
 - `starnet.timeout` 每秒心跳（回调续订）
 
 ### chat
-Socket 聊天室示例（协程化 socket 消息 + 封包）：
-- `starnet.start` 里 `starnet.socket.listen(8002, serviceId)` 监听 8002 端口
+Socket 聊天室示例（协程化 socket 消息 + 裸数据逐行协议）：
+- `starnet.start` 里 `starnet.socket.rawdata()` 启用裸数据模式（`dispatch("socket")` 直接收原始字节流，跳过 netpack 帧解析），`starnet.socket.listen(8002, serviceId)` 监听 8002 端口
 - `dispatch("accept", ...)` 记录新连接
-- `dispatch("socket", ...)` 收到**完整包**后广播给所有连接（`starnet.socket.write(cfd, starnet.pack(msg))` 加长度头）
+- `dispatch("socket", ...)` 收到**原始数据**后广播给所有连接（`starnet.socket.write(cfd, msg)` 原样转发，nc 直接可读）
 - `dispatch("close", ...)` 移除断开连接
+
+> chat 为什么用裸数据？聊天室是逐行协议，nc 等终端发的是纯文本、不带 netpack 的 2 字节长度头；若走帧协议，`netpack.filter` 会把文本头两个字节当包长，半包永远等不齐，`dispatch("socket")` 不触发。需要帧协议的 TCP 服务（如 cluster、自定义协议）保持默认即可，不调 `rawdata()`。
 
 联调方式（另开终端）：
 

@@ -259,7 +259,7 @@ filter_data(lua_State *L, struct queue *q, int fd, uint8_t *buffer, int size) {
 //创建解析队列 userdata
 static int
 lcreate(lua_State *L) {
-    struct queue *q = (struct queue*)lua_newuserdatauv(L, sizeof(struct queue), 0);
+    struct queue *q = (struct queue*)lua_newuserdata(L, sizeof(struct queue));
     memset(q, 0, sizeof(*q));
     q->queue = (struct netpack*)malloc(sizeof(struct netpack) * QUEUESIZE);
     if (q->queue == NULL) {
