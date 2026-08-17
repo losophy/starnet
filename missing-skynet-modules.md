@@ -145,9 +145,9 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 ### 集群 / 分布式
 
-- `skynet_harbor.c`（跨节点消息、`REMOTE_MAX`）
-- `cluster.lua` / `clustersender` / `clusteragent` / `clusterd`
-- `datacenter` / `datacenterd`
+- **harbor（不做）**：`skynet_harbor.c`（跨节点消息、`REMOTE_MAX`）——skynet 官方**不推荐 harbor**（全局名字依赖 master 单点、全连通 O(n²) 连接、消息可能乱序、任意 handle 互通难管控），且需劫持进程内消息发送路径（starnet C++ 内核改动大）。**不做，理由：游戏服务器跨服/跨区用 cluster 白名单 RPC 更贴合**。
+- **cluster：✅ 已补（简化版，全 Lua，C++ 零改动）**——`lualib/starnet/cluster.lua`（客户端 API：`open/call/send/query/register/unregister/reload`）+ `examples/clusterd.lua`（每节点一个，统一管理出站/入站连接，简化合并 skynet 的 `clusterd`/`clustersender`/`clusteragent`/`cluster.core`/`gate`）。
+- **datacenter / datacenterd（不做）**：全局共享数据服务，游戏服务器可用 sharedata/共享内存替代，暂缓。
 
 ### 标准服务集（`service/`）
 
@@ -167,7 +167,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 - `snax`：集群化 RPC 框架
 - `sproto` / `seri`：协议序列化
 - `sharedata` / `sharetable` / `datasheet`：共享只读数据
-- `cluster` / `harbor` / `datacenter` / `multicast` / `stm`
+- **`cluster`（✅ 已补，见上「集群 / 分布式」）/ `harbor`（不做）/ `datacenter` / `multicast` / `stm`**
 - `require.lua` / `codecache`：模块加载与代码缓存
 - `debug.lua` / `profile.lua`：调试与性能分析
 
@@ -189,7 +189,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（harbor/cluster）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、标准服务集、lualib | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、标准服务集、lualib | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
 

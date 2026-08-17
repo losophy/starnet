@@ -150,6 +150,27 @@ echo hello | nc -u 127.0.0.1 8003
 
 （返回 `hello` 即 echo 成功。）
 
+### cluster（cluster1 + cluster2 + clusterd）
+跨节点 RPC 示例（简化版 skynet.cluster，全 Lua、C++ 零改动）：
+- `clusterd.lua`：每节点一个的集群服务（`cluster.lua` 首次调用时懒启动），统一管理出站/入站连接、`@名字`解析、请求/响应 session 匹配
+- `cluster1.lua`：监听 8001，注册服务 `hello`，跨服调 `cluster2` 的 `hello2`
+- `cluster2.lua`：监听 8002，注册服务 `hello2`，跨服调 `cluster1` 的 `hello`
+
+配置：`config.lua` 的扁平键 `cluster = "nodeB=127.0.0.1:8002"`（`node=host:port` 逗号分隔，`clusterd` 读 `env`）。
+
+API（`require "starnet.cluster"`）：`cluster.open(port)` 开放入站、`cluster.call(node, addr, payload)` 跨服 RPC、`cluster.send(node, addr, payload)` 跨服发送、`cluster.query(node, name)` 查对端注册名、`cluster.register(name[, addr])` 本节点公开服务、`cluster.unregister(name)`、`cluster.reload(cfg)`。`addr` 支持 `@名字`（对端 clusterd 解析）或数字 handle；`payload` 为字符串，业务自行打包（如 `string.pack`）。
+
+> 协议：外层 `starnet.pack`（2 字节大端长度头，单包 ≤64KB）；内部 `>s2i4s4`（请求）与 `>i4i1s4`（响应）。启动顺序：**先 `cluster2` 后 `cluster1`**（或并行启动，cluster1 的调用稍候再发）。
+
+```sh
+# 终端 1（先启动 cluster2）
+cd build && ./starnet ../examples/config_cluster2.lua
+# 终端 2
+cd build && ./starnet ../examples/config_cluster1.lua
+```
+
+`cluster1` 日志应打印 `call nodeB.@hello2 -> pong from cluster2`、`query nodeB.hello2 -> <cluster2 服务 handle>`。
+
 ## 如何新建示例
 
 1. 新建单文件 `examples/<名字>.lua`
