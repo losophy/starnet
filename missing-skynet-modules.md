@@ -15,6 +15,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | `starnet_socket_server.cpp`（IO引擎） + `starnet_socket.cpp`（桥接） | `socket_server.c` + `skynet_socket.c` | 网络层（极简版；读已统一到 socket 线程：TCP 循环 read / UDP 循环 recvfrom，引擎读、服务收现成数据） |
 | `starnet_socket_server.cpp` 内写缓冲（`ConnWriteBuffer`） | `socket_server.c` 写缓冲 | 写缓冲/优雅关闭（极简版） |
 | `lualib-src/lua-starnet.cpp` | `lua-skynet.c` | Lua C API 绑定（极简版） |
+| `lualib-src/lua-seri.cpp` | `lualib-src/lua-seri.c` | 序列化（返回字符串版：serialize/unserialize/packstring/unpackstring） |
 | `lualib/starnet.lua` | `lualib/skynet.lua` | Lua 宿主库：协程 dispatch / session RPC / sleep/fork/timeout（核心子集） |
 | `lualib-src/lua-netpack.cpp` | `lualib-src/lua-netpack.c` | 网络封包：2 字节大端长度头 + 粘包/半包解析（`netpack.filter/pop/pack`） |
 | `starnet_msg.h` 的 `BaseMsg::TYPE` + `SocketMsg` | `skynet.h` 的 `PTYPE_*` + `socket_server.h` 的 `SKYNET_SOCKET_TYPE_*` | 协议类型体系：PTYPE 编号对齐 + socket 子类型（`starnet.PTYPE_*` 常量） |
@@ -159,7 +160,14 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 
 - `skynet_globalexit` / `skynet_context_dispatchall`：优雅全局退出——**✅ 已补**（SIGINT/SIGTERM → 退出请求 → `KillAllServices` 触发各服务 `OnExit`/lua_close + 残留消息回 `PTYPE_ERROR`（= `dispatchall` 排空语义）→ worker 处理完队列到空退出 → socket 线程 eventfd 唤醒后 `CloseAll` 收尾 → 主线程 join 全部线程；Lua 侧 `starnet.globalexit()` 业务主动触发）
 - `skynet_daemon.c`：守护进程化——**✅ 已补**（`config.daemon` 配 pidfile 字符串则后台运行：查重 → `daemon(1,1)` fork+setsid → flock 写 pidfile → stdio 重定向 /dev/null；退出删 pidfile。注意 daemon 模式必须配 `logger` 文件才有日志；也可用 systemd/supervisor 替代）
-- `skynet_profile_enable`：性能统计——**✅ 已补**（`starnet_thread_time()` 读 `CLOCK_THREAD_CPUTIME_ID`；`config.profile` 全局开关默认开，服务构造时复制；`ProcessMsg` 每条消息前后统计 `cpuCost`/`messageCount`（profile 关闭零开销）；Lua 侧 `starnet.cpu()` 累计 CPU 秒、`starnet.time()` 当前消息耗时、`starnet.message()` 累计消息数）
+- `skynet_profile_enable`：性能统计——**✅ 已补**（`starnet_thread_time()` 读 `CLOCK_THREAD_CPUTIME_ID`；`config.profile` 全局开关默认开，服务构造时复制；`ProcessMsg` 每条消息前后统计 `cpuCost`/`messageCount`（profile 关闭零开销）；Lua 侧 `starnet.cpu()` 累计 CPU 秒、`starnet.msgtime()` 当前消息耗时、`starnet.message()` 累计消息数）
+
+### 序列化 / 查询通道 / 时间 API
+
+- **序列化**：✅ 已补（`lua-seri.cpp`，对齐 `lua-seri.c` 编码）——`starnet.serialize(...)` 打包参数为字节串、`starnet.unserialize(str)` 反序列化、`starnet.packstring(...)`（4 字节大端长度前缀+数据，网络/跨节点友好）、`starnet.unpackstring(str)`。支持嵌套表（数组+hash+`__pairs`）、数字压缩（byte/word/dword/qword/double）、`MAX_DEPTH 32`、非法流检测。**简化**：skynet 返回 `(userdata,len)` 靠消费方 free，starnet 返回字符串（GC 自管，无手动释放）；命名用独立名避免与现有 `starnet.pack`（netpack 网络长度头）撞车。
+- **连接状态查询**：✅ 已补（对齐 `socket_info.h`）——`starnet.socket.info(fd)` 返回表（`fd/type/service/connecting/bind/paused/wbuffer`），fd 不存在返回 nil；引擎 `SocketServer::GetSocketInfo` 跨线程快照（`connsLock` + `writeBuffersLock`）。
+- **管理命令通道**：✅ 已补（对齐 `skynet.command`/`intcommand`）——`starnet.command("STARTTIME")` 启动秒、`starnet.command("ABORT")` 立即终止、`starnet.command("STAT")` 当前服务 `{cpu,time,message}` 表；现有 `cpu()/msgtime()/globalexit` 便捷 API 保留并存。
+- **时间 API**：✅ 已补——`starnet.now()`（centisecond）、`starnet.starttime()`（启动 unix 秒，`starnet_timer` 加 `starnet_starttime()`）、`starnet.time()`（当前 unix 秒 = now/100+starttime，对齐 `skynet.time()`；原 profile 的"当前消息耗时"改绑 `starnet.msgtime()`）、`starnet.abort()`（立即终止进程，对齐 skynet ABORT，非优雅）。
 
 ---
 

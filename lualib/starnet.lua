@@ -393,6 +393,11 @@ function starnet.socket.close(fd)
     c.close_conn(fd)
 end
 
+--连接状态查询（对齐 skynet socket_info.h：fd 不存在返回 nil；表含 fd/type/service/connecting/bind/paused/wbuffer）
+function starnet.socket.info(fd)
+    return c.socketinfo(fd)
+end
+
 --shutdown：写缓冲发完再关（对齐 skynet.socket.shutdown，优雅关闭）
 function starnet.socket.shutdown(fd)
     c.shutdown(fd)

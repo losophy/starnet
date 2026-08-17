@@ -1,6 +1,7 @@
 #include "lua-starnet.h"
 #include "lua-netpack.h"
 #include "lua-sharedata.h"
+#include "lua-seri.h"
 #include "stdint.h"
 #include "starnet.h"
 #include "starnet_service.h"
@@ -55,11 +56,30 @@ void LuaAPI::Register(lua_State *luaState) {
 
         //优雅全局退出（业务主动触发停机）
         { "globalexit", GlobalExit },
+        //立即终止进程（非优雅，对齐 skynet ABORT）
+        { "abort", Abort },
 
-        //性能统计（对齐 skynet.cpu()/time()/message()）
-        { "cpu", Cpu },
+        //时间（对齐 skynet.now / starttime / time）
+        { "now", Now },
+        { "starttime", StartTime },
         { "time", Time },
+
+        //性能统计（对齐 skynet 的 cmd_stat）
+        { "cpu", Cpu },
+        { "msgtime", MsgTime },
         { "message", Message },
+
+        //管理命令通道（对齐 skynet.command：STARTTIME / ABORT / STAT）
+        { "command", Command },
+
+        //序列化（对齐 skynet.serialize/unserialize/packstring/unpackstring）
+        { "serialize", LuaSeri::Serialize },
+        { "unserialize", LuaSeri::Unserialize },
+        { "packstring", LuaSeri::PackString },
+        { "unpackstring", LuaSeri::UnpackString },
+
+        //连接状态查询（对齐 skynet socket_info.h；Lua 侧 starnet.socket.info(fd)）
+        { "socketinfo", SocketInfo },
 
         { "timeout", Timeout },
         { NULL, NULL }
@@ -526,7 +546,32 @@ int LuaAPI::GlobalExit(lua_State *luaState){
     return 0;
 }
 
-//性能统计：当前服务累计处理消息的 CPU 时间（秒，对齐 skynet.cpu）
+//立即终止进程（非优雅，不排空，对齐 skynet 的 ABORT 命令；debug/紧急用）
+int LuaAPI::Abort(lua_State *luaState){
+    Starnet::inst->Abort();
+    return 0;
+}
+
+//当前 tick（centisecond，对齐 skynet.now）
+int LuaAPI::Now(lua_State *luaState){
+    lua_pushinteger(luaState, (lua_Integer)starnet_now());
+    return 1;
+}
+
+//启动时间戳（unix 秒，对齐 skynet.starttime）
+int LuaAPI::StartTime(lua_State *luaState){
+    lua_pushinteger(luaState, (lua_Integer)starnet_starttime());
+    return 1;
+}
+
+//当前 unix 秒（对齐 skynet.time()：now()/100 + starttime）
+int LuaAPI::Time(lua_State *luaState){
+    double t = (double)starnet_now() / 100.0 + (double)starnet_starttime();
+    lua_pushnumber(luaState, t);
+    return 1;
+}
+
+//性能统计：当前服务累计处理消息的 CPU 时间（秒，对齐 skynet 的 cmd_stat "cpu"）
 int LuaAPI::Cpu(lua_State *luaState){
     Service* srv = GetCurrentService(luaState);
     if(!srv) {
@@ -538,8 +583,8 @@ int LuaAPI::Cpu(lua_State *luaState){
     return 1;
 }
 
-//性能统计：当前正在处理消息的耗时（秒；profile 关闭返回 0，对齐 skynet.time）
-int LuaAPI::Time(lua_State *luaState){
+//性能统计：当前正在处理消息的耗时（秒；profile 关闭返回 0）
+int LuaAPI::MsgTime(lua_State *luaState){
     Service* srv = GetCurrentService(luaState);
     if(!srv || !srv->profile) {
         lua_pushnumber(luaState, 0);
@@ -558,6 +603,71 @@ int LuaAPI::Message(lua_State *luaState){
         return 1;
     }
     lua_pushinteger(luaState, (lua_Integer)srv->messageCount.load(std::memory_order_relaxed));
+    return 1;
+}
+
+//管理命令通道（对齐 skynet.command / skynet_context_command）
+//STARTTIME -> 启动秒；ABORT -> 立即终止；STAT -> 当前服务 cpu/time/message 表
+int LuaAPI::Command(lua_State *luaState){
+    size_t len = 0;
+    const char* cmd = lua_tolstring(luaState, 1, &len);
+    if(!cmd || len == 0) {
+        return 0;
+    }
+    if(strncmp(cmd, "STARTTIME", len) == 0) {
+        lua_pushinteger(luaState, (lua_Integer)starnet_starttime());
+        return 1;
+    }
+    if(strncmp(cmd, "ABORT", len) == 0) {
+        Starnet::inst->Abort();
+        return 0;
+    }
+    if(strncmp(cmd, "STAT", len) == 0) {
+        Service* srv = GetCurrentService(luaState);
+        if(!srv) {
+            return 0;
+        }
+        double cpu = (double)srv->cpuCost.load(std::memory_order_relaxed) / 1000000.0;
+        double mt = (srv->profile ? (double)(starnet_thread_time() - srv->cpuStart) / 1000000.0 : 0.0);
+        lua_createtable(luaState, 0, 3);
+        lua_pushnumber(luaState, cpu);
+        lua_setfield(luaState, -2, "cpu");
+        lua_pushnumber(luaState, mt);
+        lua_setfield(luaState, -2, "time");
+        lua_pushinteger(luaState, (lua_Integer)srv->messageCount.load(std::memory_order_relaxed));
+        lua_setfield(luaState, -2, "message");
+        return 1;
+    }
+    return 0;
+}
+
+//连接状态查询（对齐 skynet socket_info.h；Lua 侧 starnet.socket.info(fd) 返回表，fd 不存在返回 nil）
+int LuaAPI::SocketInfo(lua_State *luaState){
+    if(lua_isinteger(luaState, 1) == 0) {
+        lua_pushnil(luaState);
+        return 1;
+    }
+    int fd = lua_tointeger(luaState, 1);
+    SocketInfo info;
+    if(!Starnet::inst->GetSocketInfo(fd, info)) {
+        lua_pushnil(luaState);
+        return 1;
+    }
+    lua_createtable(luaState, 0, 7);
+    lua_pushinteger(luaState, info.fd);
+    lua_setfield(luaState, -2, "fd");
+    lua_pushinteger(luaState, info.type);
+    lua_setfield(luaState, -2, "type");
+    lua_pushinteger(luaState, info.serviceId);
+    lua_setfield(luaState, -2, "service");
+    lua_pushboolean(luaState, info.connecting);
+    lua_setfield(luaState, -2, "connecting");
+    lua_pushboolean(luaState, info.isBind);
+    lua_setfield(luaState, -2, "bind");
+    lua_pushboolean(luaState, info.paused);
+    lua_setfield(luaState, -2, "paused");
+    lua_pushinteger(luaState, (lua_Integer)info.wbuffer);
+    lua_setfield(luaState, -2, "wbuffer");
     return 1;
 }
 

@@ -246,6 +246,11 @@ starnet_now(void) {
     return TI->current;
 }
 
+uint32_t
+starnet_starttime(void) {
+    return TI->starttime;
+}
+
 void
 starnet_timer_init(void) {
     TI = timer_create_timer();

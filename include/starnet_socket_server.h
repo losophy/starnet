@@ -10,6 +10,17 @@
 
 using namespace std;
 
+//连接状态快照（对齐 skynet socket_info.h；Lua 侧 starnet.socket.info(fd) 查询，跨线程安全）
+struct SocketInfo {
+    int fd;
+    int type;         //1=LISTEN 2=CLIENT(TCP) 3=UDP 4=BIND（对齐 Conn::TYPE）
+    uint32_t serviceId;
+    bool connecting;  //主动连接中
+    bool isBind;      //绑定已有 fd
+    bool paused;      //读暂停
+    size_t wbuffer;   //写缓冲积压字节数
+};
+
 //写缓冲对象（对齐 socket_server.c 的 socket_sendbuffer）
 struct WriteObject {
     int start;
@@ -52,6 +63,8 @@ public:
     int AddConn(int fd, uint32_t id, Conn::TYPE type);
     shared_ptr<Conn> GetConn(int fd);
     bool RemoveConn(int fd);
+    //连接状态查询（对齐 skynet socket_server_info：读快照，跨线程安全；返回 false 表示 fd 不存在）
+    bool GetSocketInfo(int fd, SocketInfo& out);
     //Epoll事件（跨线程）
     void AddEvent(int fd);
     void RemoveEvent(int fd);

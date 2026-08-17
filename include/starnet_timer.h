@@ -16,6 +16,9 @@ void starnet_updatetime();
 //当前tick（centisecond）
 uint64_t starnet_now();
 
+//启动时间戳（unix 秒，对齐 skynet 的 skynet_starttime）
+uint32_t starnet_starttime();
+
 //性能统计（对齐 skynet_timer.c skynet_thread_time / skynet_profile_enable）：
 //当前线程 CPU 时间，微秒（CLOCK_THREAD_CPUTIME_ID）
 uint64_t starnet_thread_time();

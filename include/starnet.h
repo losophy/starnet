@@ -29,6 +29,8 @@ public:
     void RequestExit();                //请求退出（信号 / starnet.globalexit 触发）
     bool IsExitRequested();            //是否已请求退出（Wait 轮询）
     void KillAllServices();            //全部服务退休（OnExit + mq 清理，dispatchall 排空语义）
+    //立即终止进程（非优雅，不排空，对齐 skynet 的 ABORT 命令；debug/紧急用）
+    void Abort();
     //名字服务（对齐 skynet_handle_namehandle/findname）
     bool NameService(uint32_t handle, const char* name);
     uint32_t FindServiceByName(const char* name);
@@ -45,6 +47,8 @@ public:
     int AddConn(int fd, uint32_t id, Conn::TYPE type);
     shared_ptr<Conn> GetConn(int fd);
     bool RemoveConn(int fd);
+    //连接状态查询（对齐 skynet socket_info；Lua 侧 starnet.socket.info(fd)）
+    bool GetSocketInfo(int fd, SocketInfo& out);
     //网络连接操作接口（用原始read write）
     int Listen(uint32_t port, uint32_t serviceId);
     void CloseConn(uint32_t fd);

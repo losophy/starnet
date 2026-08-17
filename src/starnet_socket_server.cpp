@@ -428,6 +428,39 @@ shared_ptr<Conn> SocketServer::GetConn(int fd) {
     return conn;
 }
 
+//连接状态查询（对齐 skynet socket_server_info：读快照，跨线程安全）
+bool SocketServer::GetSocketInfo(int fd, SocketInfo& out) {
+    shared_ptr<Conn> conn = NULL;
+    pthread_rwlock_rdlock(&connsLock);
+    {
+        auto iter = conns.find(fd);
+        if (iter != conns.end()) {
+            conn = iter->second;
+        }
+    }
+    pthread_rwlock_unlock(&connsLock);
+    if(!conn) {
+        return false;
+    }
+    out.fd = conn->fd;
+    out.type = conn->type;
+    out.serviceId = conn->serviceId;
+    out.connecting = conn->connecting;
+    out.isBind = conn->isBind;
+    out.paused = conn->paused;
+    out.wbuffer = 0;
+    //写缓冲积压（写缓冲由 writeBuffersLock 保护，跨线程安全）
+    pthread_spin_lock(&writeBuffersLock);
+    {
+        auto iter = writeBuffers.find(fd);
+        if(iter != writeBuffers.end()) {
+            out.wbuffer = iter->second.wbSize;
+        }
+    }
+    pthread_spin_unlock(&writeBuffersLock);
+    return true;
+}
+
 //删除连接
 bool SocketServer::RemoveConn(int fd) {
     int result;

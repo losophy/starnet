@@ -10,6 +10,7 @@
 #include <assert.h>
 #include <vector>
 #include <string.h>
+#include <stdlib.h>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -177,6 +178,11 @@ void Starnet::KillAllServices() {
     }
 }
 
+//立即终止进程（非优雅，不排空，对齐 skynet 的 ABORT 命令）
+void Starnet::Abort() {
+    abort();
+}
+
 
 //名字服务：注册本地名（对齐 skynet_handle_namehandle）
 bool Starnet::NameService(uint32_t handle, const char* name) {
@@ -241,6 +247,11 @@ shared_ptr<Conn> Starnet::GetConn(int fd) {
 //删除连接（转发到SocketIO引擎）
 bool Starnet::RemoveConn(int fd) {
     return socketServer->RemoveConn(fd);
+}
+
+//连接状态查询（对齐 skynet socket_info）
+bool Starnet::GetSocketInfo(int fd, SocketInfo& out) {
+    return socketServer->GetSocketInfo(fd, out);
 }
 
 int Starnet::Listen(uint32_t port, uint32_t serviceId) {
