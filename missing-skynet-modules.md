@@ -181,7 +181,7 @@ starnet 已具备的骨架（对应 skynet 的简化版）：
 | **P3（寻址）** | 4. handle/名字服务 + 协议类型分发（`PTYPE_*`） | P1（✅ 已完成） |
 | **P4（工程化）** | 5. 日志（✅）/ 配置（✅：`getenv/setenv` + config 全量 env，`skynet_env`）/ 内存统计（✅：进程 RSS，`mem_info`）/ 队列 overload 与 weight 调度（✅：`MQ_OVERLOAD` 告警 + 硬编码 weight 表）/ 消息丢弃通知（✅：退出丢弃回 `PTYPE_ERROR`，对齐 `drop_message`） | 无 |
 | **P5（扩展）** | 6. C 模块加载（`skynet_module`） | ——（不实施，见「C 模块加载为何不实施」） |
-| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、sharedata（✅ 已补，引擎内精简版 / sharetable、datasheet 待补）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、进程级能力（优雅退出 ✅ 已补、daemon ✅ 已补、profile ✅ 已补）；标准服务集与 lualib → 业务层，见 `business-layer-modules.md` | P4 |
+| **P6（高级）** | 7. 监视器（✅ 已完成）、集群（cluster ✅ 已补 / harbor 不做）、sharedata（✅ 已补，引擎内精简版 / sharetable、datasheet 待补）、UDP（✅ 已完成）、connect（✅ 已完成）、bind 已有 fd（✅ 已完成）、写缓冲优先级（✅ 已完成）、连接控制（✅ 已完成）、进程级能力（优雅退出 ✅ 已补、daemon ✅ 已补、profile ✅ 已补）；标准服务集与 lualib → 业务层（候选清单见 `service/README.md`） | P4 |
 
 > 补充：starnet 现有实现还需对齐的简化点——`SocketServer::OnAccept` 循环 accept、`KillService` 与 worker 的并发安全。（服务退出时清空未处理消息✅ 已补：丢弃时回 `PTYPE_ERROR` 通知发送方）
 
